@@ -5,15 +5,15 @@ import com.alibaba.fastjson.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.docai.ai.entity.*;
 import com.docai.ai.mapper.*;
+import com.docai.ai.service.LlmService;
 import com.docai.ai.service.TemplateFillService;
+import com.docai.common.service.OssService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.*;
 import org.apache.poi.xwpf.usermodel.*;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -45,8 +45,10 @@ public class TemplateFillServiceImpl implements TemplateFillService {
     private SourceDocumentMapper sourceDocumentMapper;
 
     @Autowired
-    @Qualifier("defaultChatClient")
-    private ChatClient chatClient;
+    private LlmService llmService;
+
+    @Autowired
+    private OssService ossService;
 
     @Override
     public TemplateFileEntity uploadTemplate(MultipartFile file, Long userId) {
@@ -55,6 +57,14 @@ public class TemplateFillServiceImpl implements TemplateFillService {
 
         if (!"xlsx".equals(fileType) && !"docx".equals(fileType)) {
             throw new RuntimeException("仅支持xlsx和docx格式的模板文件");
+        }
+
+        String ossKey = "";
+        try {
+            String fileUrl = ossService.uploadFile(file, "template_files/");
+            ossKey = getOssKey(fileUrl);
+        } catch (Exception ex) {
+            log.warn("模板上传OSS失败，继续使用本地路径: {}", ex.getMessage());
         }
 
         Path tempDir;
@@ -72,11 +82,31 @@ public class TemplateFillServiceImpl implements TemplateFillService {
         tpl.setFileName(originalFilename);
         tpl.setTemplateType(fileType);
         tpl.setStoragePath(savedPath.toString());
+        tpl.setOssKey(ossKey);
         tpl.setFileSize(file.getSize());
         tpl.setParseStatus("uploaded");
+
         templateFileMapper.insert(tpl);
 
         return tpl;
+    }
+
+    private String getOssKey(String fileUrl) {
+        if (fileUrl == null || fileUrl.isEmpty()) {
+            return "";
+        }
+        String[] parts = fileUrl.split("/");
+        if (parts.length >= 4) {
+            StringBuilder key = new StringBuilder();
+            for (int i = 3; i < parts.length; i++) {
+                if (i > 3) {
+                    key.append('/');
+                }
+                key.append(parts[i]);
+            }
+            return key.toString();
+        }
+        return "";
     }
 
     @Override
@@ -577,10 +607,7 @@ public class TemplateFillServiceImpl implements TemplateFillService {
 
         String response;
         try {
-            response = chatClient.prompt()
-                    .user(prompt)
-                    .call()
-                    .content();
+            response = llmService.generateText(prompt);
         } catch (Exception e) {
             log.error("LLM判定调用失败: {}", e.getMessage());
             return null;

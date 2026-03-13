@@ -41,10 +41,10 @@ public class RedisServiceImpl implements RedisService {
     private static final String USER_SESSION_PREFIX = "user_session:";
 
     @Override
-    public void storeVerificationCode(String code, Long userId, String userName) {
+    public void storeVerificationCode(String code, Long userId, String userName, String loginKey) {
         // 1. 先生成key
         String key = CODE_PREFIX + code;
-        CodeInfo codeInfo = new CodeInfo(userId, userName);
+        CodeInfo codeInfo = new CodeInfo(userId, userName, loginKey);
         // 2. 对象序列化之后，写入redis
         try {
             String value = objectMapper.writeValueAsString(codeInfo);
@@ -77,6 +77,28 @@ public class RedisServiceImpl implements RedisService {
         // 1. 先生成key
         String key = CODE_PREFIX + code;
         return stringRedisTemplate.hasKey(key);
+    }
+
+    @Override
+    public boolean isCodeValid(String code, String loginKey) {
+        String key = CODE_PREFIX + code;
+        String value = stringRedisTemplate.opsForValue().get(key);
+        if (value == null) {
+            return false;
+        }
+        try {
+            CodeInfo codeInfo = objectMapper.readValue(value, CodeInfo.class);
+            if (codeInfo == null) {
+                return false;
+            }
+            if (loginKey == null || loginKey.isBlank()) {
+                return false;
+            }
+            return loginKey.equalsIgnoreCase(codeInfo.loginKey);
+        } catch (JsonProcessingException e) {
+            log.error("[Redis读取失败] 验证码 {}  报错 {}", code, e.getMessage());
+            return false;
+        }
     }
 
     @Override
@@ -161,6 +183,11 @@ public class RedisServiceImpl implements RedisService {
          * 用户名：邮箱或者用户名
          */
         private String userName;
+
+        /**
+         * 登录标识（邮箱/用户名），用于验证码归属校验
+         */
+        private String loginKey;
     }
 
 

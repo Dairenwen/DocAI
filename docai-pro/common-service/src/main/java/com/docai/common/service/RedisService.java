@@ -11,7 +11,7 @@ public interface RedisService {
      * @param userId 用户ID
      * @param userName 用户名
      */
-    void storeVerificationCode(String code, Long userId, String userName);
+    void storeVerificationCode(String code, Long userId, String userName, String loginKey);
 
 
     /**
@@ -27,6 +27,14 @@ public interface RedisService {
      * @return 是否有效
      */
     boolean isCodeValid(String code);
+
+    /**
+     * 校验验证码是否对指定登录标识有效（邮箱/用户名）
+     * @param code 验证码
+     * @param loginKey 登录标识
+     * @return 是否有效
+     */
+    boolean isCodeValid(String code, String loginKey);
 
     /**
      * 删除验证码

@@ -1,5 +1,7 @@
 package com.docai.user.service;
 
+import com.docai.user.dto.response.CodeSendResult;
+
 /**
  * 验证码服务相关接口
  */
@@ -10,7 +12,7 @@ public interface VerificationCodeService {
      * @param email 邮箱
      * @return 过期时长（秒）
      */
-    int sendCode(String email);
+    CodeSendResult sendCode(String email);
 
     /**
      * 校验验证码

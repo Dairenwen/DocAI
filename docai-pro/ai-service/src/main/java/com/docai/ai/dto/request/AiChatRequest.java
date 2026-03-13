@@ -11,7 +11,6 @@ import lombok.Data;
 public class AiChatRequest {
 
     // 文件ID
-    @NotNull(message = "文件ID不能为空")
     private Long fileId;
 
     // 用户输入的自然语言

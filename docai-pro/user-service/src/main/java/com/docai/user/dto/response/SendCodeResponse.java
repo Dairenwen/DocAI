@@ -20,4 +20,14 @@ public class SendCodeResponse {
      */
     private Integer expireTime;
 
+    /**
+     * 邮件发送是否成功
+     */
+    private Boolean sendSuccess;
+
+    /**
+     * 投递模式：smtp/noop
+     */
+    private String deliveryMode;
+
 }

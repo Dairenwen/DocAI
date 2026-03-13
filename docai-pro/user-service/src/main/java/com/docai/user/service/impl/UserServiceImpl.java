@@ -4,6 +4,7 @@ import com.alibaba.cloud.commons.lang.StringUtils;
 import com.docai.common.util.JwtUtil;
 import com.docai.user.dto.request.AuthRequest;
 import com.docai.user.dto.request.ChangePasswordRequest;
+import com.docai.user.dto.request.ResetPasswordByEmailRequest;
 import com.docai.user.dto.response.AuthResponse;
 import com.docai.user.dto.response.ChangePasswordResponse;
 import com.docai.user.dto.response.UserInfoResponse;
@@ -64,13 +65,17 @@ public class UserServiceImpl implements UserService {
             if (userId == 0L) {
                 user = new UserEntity();
                 user.setEmail(authRequest.getEmail());
-                user.setUserName(createRandomName());
+                if (StringUtils.isNotBlank(authRequest.getUsername()) && userMapper.existByUserName(authRequest.getUsername()) == 0) {
+                    user.setUserName(authRequest.getUsername());
+                } else {
+                    user.setUserName(createRandomName());
+                }
                 userMapper.insert(user);
                 isNewUser = true;
+            } else {
+                // 老用户登录，直接查数据库完善user信息
+                user = userMapper.selectById(userId);
             }
-
-            // 老用户登录，直接查数据库完善user信息
-            user = userMapper.selectById(userId);
 
             // 5. 删除验证码，避免重复使用
             verificationCodeService.remove(authRequest.getVerificationCode());
@@ -174,6 +179,27 @@ public class UserServiceImpl implements UserService {
                 .userId(userId)
                 .username(user.getUserName())
                 .build();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void resetPasswordByEmail(ResetPasswordByEmailRequest request) {
+        if (!request.getNewPassword().equals(request.getConfirmPassword())) {
+            throw new IllegalArgumentException("请保证新旧密码一致");
+        }
+
+        if (!verificationCodeService.verifyCode(request.getEmail(), request.getVerificationCode())) {
+            throw new IllegalArgumentException("验证码无效或者过期");
+        }
+
+        UserEntity user = userMapper.findByLoginKey(request.getEmail());
+        if (user == null || StringUtils.isBlank(user.getEmail())) {
+            throw new IllegalArgumentException("该邮箱尚未注册");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        userMapper.updateById(user);
+        verificationCodeService.remove(request.getVerificationCode());
     }
 
     @Override

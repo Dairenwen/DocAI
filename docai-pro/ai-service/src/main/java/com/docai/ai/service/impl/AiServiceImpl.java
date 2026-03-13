@@ -16,6 +16,7 @@ import com.docai.ai.mapper.AiRequestMapper;
 import com.docai.ai.service.AiModelService;
 import com.docai.ai.service.AiService;
 import com.docai.ai.service.FileMetaDataService;
+import com.docai.ai.service.LlmService;
 import com.docai.ai.service.SQLGenerationService;
 import com.docai.common.service.OssService;
 import com.docai.file.entity.FilesEntity;
@@ -63,6 +64,9 @@ public class AiServiceImpl implements AiService {
     private AiModelService aiModelService;
 
     @Autowired
+    private LlmService llmService;
+
+    @Autowired
     private OssService ossService;
 
     @Autowired
@@ -77,6 +81,14 @@ public class AiServiceImpl implements AiService {
         sendProgressEventWithData(sseEmitter, ProcessStage.INIT.getCode(), ProcessStage.INIT,
                 "开始处理AI请求...", null, null, null, null);
         aiRequestEntity = initStreamRequest(aiChatRequest, userId);
+
+        // 无文档时走在线大模型日常对话，避免强制绑定文档。
+        if (aiChatRequest.getFileId() == null || aiChatRequest.getFileId() <= 0) {
+            AiUnifiedResponse generalResponse = handleGeneralChatFlow(aiChatRequest, aiRequestEntity, sseEmitter);
+            sendCompleteEvent(sseEmitter, generalResponse);
+            sseEmitter.complete();
+            return;
+        }
 
         // 2. 校验文件的权限
         List<String> tableNames = validateFileAndSendProgress(aiChatRequest, userId, sseEmitter);
@@ -117,6 +129,57 @@ public class AiServiceImpl implements AiService {
         sendCompleteEvent(sseEmitter, response);
         sseEmitter.complete();
     }
+
+        private AiUnifiedResponse handleGeneralChatFlow(
+            AiChatRequest aiChatRequest,
+            AiRequestEntity aiRequestEntity,
+            SseEmitter sseEmitter
+        ) {
+        sendProgressEventWithData(sseEmitter, PROGRESS, ProcessStage.PROCESS_CHAT,
+            "未关联文档，执行通用在线对话", null, null, null, null);
+
+        try {
+            String prompt = String.format(
+                "你是DocAI智能助手。请根据用户输入给出专业、简洁、可执行的中文回答。用户输入：%s",
+                aiChatRequest.getUserInput()
+            );
+            String reply = llmService.generateText(prompt);
+
+            aiRequestEntity.setAiResponse(reply);
+            aiRequestEntity.setStatus(AiRequestStatus.SUCCESS.getCode());
+            aiRequestMapper.updateById(aiRequestEntity);
+
+            return AiUnifiedResponse.builder()
+                .requestId(aiRequestEntity.getId())
+                .aiResponse(reply)
+                .sqlQuery(null)
+                .resultData(Collections.emptyList())
+                .resultCount(0)
+                .status(AiRequestStatus.SUCCESS.getCode())
+                .needChart(false)
+                .isModificationRequest(false)
+                .modifiedExcelUrl(null)
+                .build();
+        } catch (Exception ex) {
+            log.error("通用对话失败: {}", ex.getMessage(), ex);
+            aiRequestEntity.setAiResponse("抱歉，当前在线模型服务暂时不可用，请稍后重试。");
+            aiRequestEntity.setStatus(AiRequestStatus.FAILED.getCode());
+            aiRequestMapper.updateById(aiRequestEntity);
+
+            return AiUnifiedResponse.builder()
+                .requestId(aiRequestEntity.getId())
+                .aiResponse("抱歉，当前在线模型服务暂时不可用，请稍后重试。")
+                .sqlQuery(null)
+                .resultData(Collections.emptyList())
+                .resultCount(0)
+                .status(AiRequestStatus.FAILED.getCode())
+                .needChart(false)
+                .isModificationRequest(false)
+                .modifiedExcelUrl(null)
+                .errorMessage(ex.getMessage())
+                .build();
+        }
+        }
 
     @Override
     public IPage<AiRequestHistoryResponse> getRequestHistory(AiRequestHistoryRequest aiRequestHistoryRequest, Long userId) {
@@ -257,7 +320,15 @@ public class AiServiceImpl implements AiService {
     ) {
 
         // 1. 生成AI响应
-        String aiResponseResult = "";
+        String aiResponseResult;
+        try {
+            aiResponseResult = aiModelService.generateAiResponse(aiChatRequest.getUserInput(), resultData);
+        } catch (Exception ex) {
+            log.warn("生成对话说明失败，回退结果摘要: {}", ex.getMessage());
+            aiResponseResult = resultData == null || resultData.isEmpty()
+                    ? "已完成处理，但当前没有可返回的数据。"
+                    : "处理完成，以下是结果数据摘要。";
+        }
 
         aiResponse.append(aiResponseResult);
         // 2. 发送AI响应事件
@@ -286,7 +357,7 @@ public class AiServiceImpl implements AiService {
                 .resultCount(resultData.size())
                 .status(AiRequestStatus.SUCCESS.getCode())
                 .needChart(false)
-                .isModificationRequest(true)
+                .isModificationRequest(aiChatResponse.getIsModificationRequest())
                 .modifiedExcelUrl(aiChatResponse.getModifiedExcelUrl())
                 .build();
     }
@@ -513,12 +584,17 @@ public class AiServiceImpl implements AiService {
     // 发送处理完成事件
     private void sendCompleteEvent(SseEmitter sseEmitter, AiUnifiedResponse aiUnifiedResponse) {
         // 1. 判断当前是查询、生成图表还是修改
-        List<Map<String, Object>> resultPreview = null;
+        List<Map<String, Object>> resultPreview = new ArrayList<>();
         if (aiUnifiedResponse.getNeedChart() != null && aiUnifiedResponse.getNeedChart()) {
-            resultPreview = new ArrayList<>(aiUnifiedResponse.getChartDataList());
+            if (aiUnifiedResponse.getChartDataList() != null) {
+                resultPreview = new ArrayList<>(aiUnifiedResponse.getChartDataList());
+            }
         } else {
+            List<Map<String, Object>> rows = aiUnifiedResponse.getResultData() == null
+                    ? Collections.emptyList()
+                    : aiUnifiedResponse.getResultData();
             resultPreview = new ArrayList<>(
-                    aiUnifiedResponse.getResultData().subList(0, Math.min(5, aiUnifiedResponse.getResultData().size()))
+                    rows.subList(0, Math.min(5, rows.size()))
             );
         }
 
@@ -862,7 +938,7 @@ public class AiServiceImpl implements AiService {
     private AiRequestEntity initStreamRequest(AiChatRequest aiChatRequest, Long userId) {
         AiRequestEntity aiRequestEntity = new AiRequestEntity();
         aiRequestEntity.setUserId(userId);
-        aiRequestEntity.setFileId(aiChatRequest.getFileId());
+        aiRequestEntity.setFileId(aiChatRequest.getFileId() == null ? 0L : aiChatRequest.getFileId());
         aiRequestEntity.setUserInput(aiChatRequest.getUserInput());
         aiRequestEntity.setStatus(AiRequestStatus.PROCESSING.getCode());
         aiRequestEntity.setAiResponse("");

@@ -11,6 +11,8 @@ import com.docai.ai.mapper.ExtractedFieldMapper;
 import com.docai.ai.mapper.FieldAliasDictMapper;
 import com.docai.ai.mapper.SourceDocumentMapper;
 import com.docai.ai.service.ExtractionService;
+import com.docai.ai.service.LlmService;
+import com.docai.common.service.OssService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.xssf.usermodel.XSSFCell;
 import org.apache.poi.xssf.usermodel.XSSFRow;
@@ -20,10 +22,7 @@ import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.apache.poi.xwpf.usermodel.XWPFTableRow;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -48,11 +47,10 @@ public class ExtractionServiceImpl implements ExtractionService {
     private FieldAliasDictMapper fieldAliasDictMapper;
 
     @Autowired
-    @Qualifier("defaultChatClient")
-    private ChatClient chatClient;
+    private LlmService llmService;
 
-    @Value("${spring.ai.alibaba.dashscope.api-key}")
-    private String dashScopeApiKey;
+    @Autowired
+    private OssService ossService;
 
     // 标准化字段映射
     private static final Map<String, List<String>> ALIAS_MAP = new LinkedHashMap<>();
@@ -79,6 +77,14 @@ public class ExtractionServiceImpl implements ExtractionService {
         String originalFilename = file.getOriginalFilename();
         String fileType = getFileType(originalFilename);
 
+        String ossKey = "";
+        try {
+            String fileUrl = ossService.uploadFile(file, "source_documents/");
+            ossKey = getOssKey(fileUrl);
+        } catch (Exception ex) {
+            log.warn("源文档上传OSS失败，继续使用本地路径: {}", ex.getMessage());
+        }
+
         // 保存文件到本地临时目录
         Path tempDir;
         Path savedPath;
@@ -96,8 +102,10 @@ public class ExtractionServiceImpl implements ExtractionService {
         doc.setFileName(originalFilename);
         doc.setFileType(fileType);
         doc.setStoragePath(savedPath.toString());
+        doc.setOssKey(ossKey);
         doc.setFileSize(file.getSize());
         doc.setUploadStatus("parsing");
+
         sourceDocumentMapper.insert(doc);
 
         // 同步抽取（可改异步）
@@ -123,6 +131,24 @@ public class ExtractionServiceImpl implements ExtractionService {
         }
 
         return doc;
+    }
+
+    private String getOssKey(String fileUrl) {
+        if (fileUrl == null || fileUrl.isEmpty()) {
+            return "";
+        }
+        String[] parts = fileUrl.split("/");
+        if (parts.length >= 4) {
+            StringBuilder key = new StringBuilder();
+            for (int i = 3; i < parts.length; i++) {
+                if (i > 3) {
+                    key.append('/');
+                }
+                key.append(parts[i]);
+            }
+            return key.toString();
+        }
+        return "";
     }
 
     @Override
@@ -259,16 +285,85 @@ public class ExtractionServiceImpl implements ExtractionService {
 
         String response;
         try {
-            response = chatClient.prompt()
-                    .user(prompt)
-                    .call()
-                    .content();
+            response = llmService.generateText(prompt);
         } catch (Exception e) {
             log.error("LLM抽取调用失败: {}", e.getMessage());
-            throw new RuntimeException("AI抽取失败: " + e.getMessage());
+            return ruleBasedExtract(docId, textContent);
+        }
+        List<ExtractedFieldEntity> parsed = parseExtractionResponse(docId, response);
+        if (parsed == null || parsed.isEmpty()) {
+            return ruleBasedExtract(docId, textContent);
+        }
+        return parsed;
+    }
+
+    /**
+     * 当外部LLM不可用时，基于规则提取常见“键:值”字段，保证流程可用性。
+     */
+    private List<ExtractedFieldEntity> ruleBasedExtract(Long docId, String textContent) {
+        List<ExtractedFieldEntity> fields = new ArrayList<>();
+        if (textContent == null || textContent.isBlank()) {
+            return fields;
         }
 
-        return parseExtractionResponse(docId, response);
+        String[] lines = textContent.split("\\r?\\n");
+        for (String raw : lines) {
+            String line = raw == null ? "" : raw.trim();
+            if (line.isEmpty() || line.startsWith("#")) {
+                continue;
+            }
+            Matcher m = Pattern.compile("^([^:：]{1,40})[:：]\\s*(.+)$").matcher(line);
+            if (!m.find()) {
+                continue;
+            }
+            String fieldName = m.group(1).trim();
+            String value = m.group(2).trim();
+            if (value.isEmpty()) {
+                continue;
+            }
+
+            ExtractedFieldEntity field = new ExtractedFieldEntity();
+            field.setDocId(docId);
+            field.setFieldName(fieldName);
+            field.setFieldValue(value);
+            field.setFieldKey(normalizeKey(fieldName));
+            field.setFieldType(detectFieldType(fieldName, value));
+            field.setAliases(JSON.toJSONString(new String[]{fieldName}));
+            field.setSourceText(line);
+            field.setSourceLocation("line");
+            field.setConfidence(new BigDecimal("0.7800"));
+            fields.add(field);
+        }
+        return fields;
+    }
+
+    private String normalizeKey(String fieldName) {
+        String normalized = fieldName == null ? "" : fieldName.toLowerCase(Locale.ROOT).replaceAll("\\s+", "_");
+        return switch (normalized) {
+            case "项目名称", "课题名称", "申报项目名称" -> "project_name";
+            case "负责人", "项目负责人", "课题负责人" -> "owner";
+            case "单位名称", "申报单位", "承担单位" -> "org_name";
+            case "联系电话", "手机号码", "电话", "手机号" -> "phone";
+            case "电子邮箱", "邮箱" -> "email";
+            default -> normalized;
+        };
+    }
+
+    private String detectFieldType(String fieldName, String value) {
+        String text = (fieldName + " " + value).toLowerCase(Locale.ROOT);
+        if (text.matches(".*(电话|手机|联系方式).*") || value.matches("^1\\d{10}$")) {
+            return "phone";
+        }
+        if (text.matches(".*(日期|时间).*")) {
+            return "date";
+        }
+        if (text.matches(".*(单位|大学|公司|机构).*")) {
+            return "org";
+        }
+        if (value.matches("^-?\\d+(\\.\\d+)?$")) {
+            return "number";
+        }
+        return "text";
     }
 
     private String buildExtractionPrompt(String textContent, String fileName) {

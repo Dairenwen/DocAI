@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG_DIR="$ROOT_DIR/logs"
 COMPOSE_FILE="$ROOT_DIR/deploy/docker-compose-mid.yml"
+PUBLIC_HOST="${PUBLIC_HOST:-124.222.53.34}"
 
 mkdir -p "$LOG_DIR"
 
@@ -68,6 +69,6 @@ start_java_service "gateway-service" "$ROOT_DIR/gateway-service/target/gateway-s
 
 echo ""
 echo "Startup complete."
-echo "Frontend: http://127.0.0.1:8080"
-echo "Gateway:  http://127.0.0.1:18080"
+echo "Frontend: http://${PUBLIC_HOST}:8080"
+echo "Gateway:  http://${PUBLIC_HOST}:18080"
 echo "Logs:     $LOG_DIR"

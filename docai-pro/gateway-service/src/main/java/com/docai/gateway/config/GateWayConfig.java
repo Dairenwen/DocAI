@@ -18,7 +18,26 @@ public class GateWayConfig {
      */
     @Bean
     public RouteLocator routeLocator(RouteLocatorBuilder builder) {
-        return builder.routes().build();
+        return builder.routes()
+            .route("user-service", r -> r.path("/api/v1/users/**")
+                .filters(f -> f.stripPrefix(2))
+                .uri("http://127.0.0.1:9001"))
+            .route("file-service", r -> r.path("/api/v1/files/**")
+                .filters(f -> f.stripPrefix(2))
+                .uri("http://127.0.0.1:9003"))
+            .route("ai-service-ai", r -> r.path("/api/v1/ai/**")
+                .filters(f -> f.stripPrefix(2))
+                .uri("http://127.0.0.1:9002"))
+            .route("ai-service-llm", r -> r.path("/api/v1/llm/**")
+                .filters(f -> f.stripPrefix(2))
+                .uri("http://127.0.0.1:9002"))
+            .route("ai-service-source", r -> r.path("/api/v1/source/**")
+                .filters(f -> f.stripPrefix(2))
+                .uri("http://127.0.0.1:9002"))
+            .route("ai-service-template", r -> r.path("/api/v1/template/**")
+                .filters(f -> f.stripPrefix(2))
+                .uri("http://127.0.0.1:9002"))
+            .build();
     }
 
 }

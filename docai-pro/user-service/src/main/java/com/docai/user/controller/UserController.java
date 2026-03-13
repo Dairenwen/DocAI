@@ -4,8 +4,10 @@ import com.docai.common.annotation.LogOperation;
 import com.docai.common.util.Result;
 import com.docai.user.dto.request.AuthRequest;
 import com.docai.user.dto.request.ChangePasswordRequest;
+import com.docai.user.dto.request.ResetPasswordByEmailRequest;
 import com.docai.user.dto.request.SendCodeRequest;
 import com.docai.user.dto.response.AuthResponse;
+import com.docai.user.dto.response.CodeSendResult;
 import com.docai.user.dto.response.ChangePasswordResponse;
 import com.docai.user.dto.response.SendCodeResponse;
 import com.docai.user.dto.response.UserInfoResponse;
@@ -35,10 +37,12 @@ public class UserController {
     @PostMapping("/verification-code")
     @LogOperation("发送验证码")
     public Result<SendCodeResponse> sendVerificationCode(@RequestBody @Valid SendCodeRequest request) {
-        int expireSeconds = verificationCodeService.sendCode(request.getEmail());
+        CodeSendResult codeSendResult = verificationCodeService.sendCode(request.getEmail());
         String sendTo = maskEmail(request.getEmail());
         SendCodeResponse response = SendCodeResponse.builder()
-                .expireTime(expireSeconds)
+            .expireTime(codeSendResult.getExpireSeconds())
+            .sendSuccess(codeSendResult.isSendSuccess())
+            .deliveryMode(codeSendResult.getDeliveryMode())
                 .sendTo(sendTo)
                 .build();
         return Result.success("验证码发送成功", response);
@@ -73,6 +77,16 @@ public class UserController {
             @RequestBody @Valid ChangePasswordRequest request
     ) {
         return Result.success("success", userService.changePassword(request, authorization));
+    }
+
+    /**
+     * 邮箱验证码重置密码
+     */
+    @PostMapping("/password/reset-by-email")
+    @LogOperation("邮箱验证码重置密码")
+    public Result<Void> resetPasswordByEmail(@RequestBody @Valid ResetPasswordByEmailRequest request) {
+        userService.resetPasswordByEmail(request);
+        return Result.success("密码重置成功", null);
     }
 
     /**

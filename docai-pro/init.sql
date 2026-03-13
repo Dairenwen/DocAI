@@ -160,23 +160,6 @@ CREATE TABLE template_slots
     INDEX idx_template_id (template_id)
 ) COMMENT '模板槽位表' CHARSET = utf8mb4 AUTO_INCREMENT = 10000001;
 
--- 填写候选表
-drop table if exists `fill_candidates`;
-CREATE TABLE fill_candidates
-(
-    id              BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
-    audit_id        VARCHAR(100) NOT NULL COMMENT '审计批次ID',
-    slot_id         VARCHAR(100) NOT NULL COMMENT '槽位标识',
-    field_id        BIGINT COMMENT '字段ID',
-    field_key       VARCHAR(100) COMMENT '标准字段键',
-    field_value     TEXT COMMENT '字段值',
-    candidate_score DECIMAL(5,4) DEFAULT 0.0 COMMENT '候选得分',
-    source_doc      VARCHAR(255) COMMENT '来源文档',
-    source_text     TEXT COMMENT '原文证据',
-    INDEX idx_audit_id (audit_id),
-    INDEX idx_slot_id (slot_id)
-) COMMENT '填写候选表' CHARSET = utf8mb4 AUTO_INCREMENT = 10000001;
-
 -- 填写决策表
 drop table if exists `fill_decisions`;
 CREATE TABLE fill_decisions
