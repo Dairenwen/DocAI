@@ -1,0 +1,35 @@
+# 忽略数据库数据目录
+docai-pro/data/
+docai-pro/logs/
+*.log
+
+# 忽略 IDE 和系统文件
+.idea/
+.vscode/
+.DS_Store
+
+# Java 编译产物
+target/
+*.jar
+*.war
+*.ear
+
+# Maven
+.mvn/
+mvnw
+mvnw.cmd
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# 忽略所有 target 编译目录
+target/
+**/target/
+
+# 忽略所有 jar 包
+*.jar
+
+# 忽略真实的配置文件（包含密钥）
+docai-pro/*/src/main/resources/bootstrap.yml

@@ -1,0 +1,464 @@
+package com.docai.ai.service.impl;
+
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONArray;
+import com.alibaba.fastjson.JSONObject;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.docai.ai.entity.ExtractedFieldEntity;
+import com.docai.ai.entity.FieldAliasDictEntity;
+import com.docai.ai.entity.SourceDocumentEntity;
+import com.docai.ai.mapper.ExtractedFieldMapper;
+import com.docai.ai.mapper.FieldAliasDictMapper;
+import com.docai.ai.mapper.SourceDocumentMapper;
+import com.docai.ai.service.ExtractionService;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.xssf.usermodel.XSSFCell;
+import org.apache.poi.xssf.usermodel.XSSFRow;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xwpf.usermodel.XWPFParagraph;
+import org.apache.poi.xwpf.usermodel.XWPFTable;
+import org.apache.poi.xwpf.usermodel.XWPFTableRow;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.*;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+@Service
+@Slf4j
+public class ExtractionServiceImpl implements ExtractionService {
+
+    @Autowired
+    private SourceDocumentMapper sourceDocumentMapper;
+    @Autowired
+    private ExtractedFieldMapper extractedFieldMapper;
+    @Autowired
+    private FieldAliasDictMapper fieldAliasDictMapper;
+
+    @Autowired
+    @Qualifier("defaultChatClient")
+    private ChatClient chatClient;
+
+    @Value("${spring.ai.alibaba.dashscope.api-key}")
+    private String dashScopeApiKey;
+
+    // 标准化字段映射
+    private static final Map<String, List<String>> ALIAS_MAP = new LinkedHashMap<>();
+    static {
+        ALIAS_MAP.put("project_name", Arrays.asList("项目名称", "课题名称", "申报项目名称", "项目名", "课题名"));
+        ALIAS_MAP.put("owner", Arrays.asList("负责人", "项目负责人", "课题负责人", "主持人", "项目主持人"));
+        ALIAS_MAP.put("org_name", Arrays.asList("单位名称", "申报单位", "承担单位", "所在单位", "依托单位", "工作单位"));
+        ALIAS_MAP.put("phone", Arrays.asList("联系电话", "手机号码", "电话", "手机号", "手机", "联系方式"));
+        ALIAS_MAP.put("email", Arrays.asList("电子邮箱", "邮箱", "E-mail", "Email", "email"));
+        ALIAS_MAP.put("id_number", Arrays.asList("身份证号", "身份证号码", "证件号码", "证件号"));
+        ALIAS_MAP.put("address", Arrays.asList("地址", "通讯地址", "联系地址", "通信地址"));
+        ALIAS_MAP.put("start_date", Arrays.asList("开始日期", "起始日期", "开始时间", "起始时间", "项目起始"));
+        ALIAS_MAP.put("end_date", Arrays.asList("结束日期", "截止日期", "结束时间", "截止时间", "项目终止"));
+        ALIAS_MAP.put("budget", Arrays.asList("经费", "预算", "资助金额", "项目经费", "总经费", "资助额度"));
+        ALIAS_MAP.put("dept_name", Arrays.asList("部门", "院系", "学院", "所属部门", "所属院系"));
+        ALIAS_MAP.put("title", Arrays.asList("职称", "职务", "专业技术职称"));
+        ALIAS_MAP.put("degree", Arrays.asList("学历", "学位", "最高学历", "最高学位"));
+        ALIAS_MAP.put("research_field", Arrays.asList("研究方向", "研究领域", "专业领域", "学科方向"));
+        ALIAS_MAP.put("postal_code", Arrays.asList("邮编", "邮政编码"));
+    }
+
+    @Override
+    public SourceDocumentEntity uploadAndExtract(MultipartFile file, Long userId) {
+        String originalFilename = file.getOriginalFilename();
+        String fileType = getFileType(originalFilename);
+
+        // 保存文件到本地临时目录
+        Path tempDir;
+        Path savedPath;
+        try {
+            tempDir = Files.createTempDirectory("docai_source_");
+            savedPath = tempDir.resolve(originalFilename);
+            file.transferTo(savedPath.toFile());
+        } catch (IOException e) {
+            throw new RuntimeException("文件保存失败: " + e.getMessage());
+        }
+
+        // 创建源文档记录
+        SourceDocumentEntity doc = new SourceDocumentEntity();
+        doc.setUserId(userId);
+        doc.setFileName(originalFilename);
+        doc.setFileType(fileType);
+        doc.setStoragePath(savedPath.toString());
+        doc.setFileSize(file.getSize());
+        doc.setUploadStatus("parsing");
+        sourceDocumentMapper.insert(doc);
+
+        // 同步抽取（可改异步）
+        try {
+            String textContent = extractTextContent(savedPath.toString(), fileType);
+            List<ExtractedFieldEntity> fields = callLlmExtract(doc.getId(), textContent, originalFilename);
+
+            // 标准化字段并存储
+            for (ExtractedFieldEntity field : fields) {
+                standardizeField(field);
+                extractedFieldMapper.insert(field);
+                updateAliasDict(field);
+            }
+
+            doc.setUploadStatus("parsed");
+            doc.setDocSummary(fields.size() + "个字段已抽取");
+            sourceDocumentMapper.updateById(doc);
+        } catch (Exception e) {
+            log.error("文档抽取失败: {}", e.getMessage(), e);
+            doc.setUploadStatus("failed");
+            doc.setDocSummary("抽取失败: " + e.getMessage());
+            sourceDocumentMapper.updateById(doc);
+        }
+
+        return doc;
+    }
+
+    @Override
+    public List<ExtractedFieldEntity> getFieldsByDocId(Long docId) {
+        return extractedFieldMapper.selectList(
+                new LambdaQueryWrapper<ExtractedFieldEntity>().eq(ExtractedFieldEntity::getDocId, docId)
+        );
+    }
+
+    @Override
+    public List<SourceDocumentEntity> getUserDocuments(Long userId) {
+        return sourceDocumentMapper.selectList(
+                new LambdaQueryWrapper<SourceDocumentEntity>().eq(SourceDocumentEntity::getUserId, userId)
+                        .orderByDesc(SourceDocumentEntity::getCreatedAt)
+        );
+    }
+
+    @Override
+    public SourceDocumentEntity getDocument(Long docId) {
+        return sourceDocumentMapper.selectById(docId);
+    }
+
+    /**
+     * 从文件中提取文本内容
+     */
+    private String extractTextContent(String filePath, String fileType) throws Exception {
+        return switch (fileType) {
+            case "docx" -> extractFromDocx(filePath);
+            case "xlsx" -> extractFromXlsx(filePath);
+            case "txt", "md" -> extractFromText(filePath);
+            default -> extractFromText(filePath);
+        };
+    }
+
+    private String extractFromDocx(String filePath) throws Exception {
+        StringBuilder sb = new StringBuilder();
+        try (FileInputStream fis = new FileInputStream(filePath);
+             XWPFDocument doc = new XWPFDocument(fis)) {
+            // 段落
+            for (XWPFParagraph para : doc.getParagraphs()) {
+                String text = para.getText();
+                if (text != null && !text.trim().isEmpty()) {
+                    sb.append(text.trim()).append("\n");
+                }
+            }
+            // 表格
+            for (XWPFTable table : doc.getTables()) {
+                for (XWPFTableRow row : table.getRows()) {
+                    StringBuilder rowText = new StringBuilder();
+                    row.getTableCells().forEach(cell -> {
+                        String cellText = cell.getText();
+                        if (cellText != null && !cellText.trim().isEmpty()) {
+                            if (!rowText.isEmpty()) rowText.append(" | ");
+                            rowText.append(cellText.trim());
+                        }
+                    });
+                    if (!rowText.isEmpty()) {
+                        sb.append(rowText).append("\n");
+                    }
+                }
+                sb.append("\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    private String extractFromXlsx(String filePath) throws Exception {
+        StringBuilder sb = new StringBuilder();
+        try (FileInputStream fis = new FileInputStream(filePath);
+             XSSFWorkbook workbook = new XSSFWorkbook(fis)) {
+            for (int s = 0; s < workbook.getNumberOfSheets(); s++) {
+                XSSFSheet sheet = workbook.getSheetAt(s);
+                sb.append("=== Sheet: ").append(sheet.getSheetName()).append(" ===\n");
+                for (int r = 0; r <= sheet.getLastRowNum(); r++) {
+                    XSSFRow row = sheet.getRow(r);
+                    if (row == null) continue;
+                    StringBuilder rowText = new StringBuilder();
+                    for (int c = 0; c < row.getLastCellNum(); c++) {
+                        XSSFCell cell = row.getCell(c);
+                        if (cell != null) {
+                            String val = getCellStringValue(cell);
+                            if (!val.isEmpty()) {
+                                if (!rowText.isEmpty()) rowText.append(" | ");
+                                rowText.append(val);
+                            }
+                        }
+                    }
+                    if (!rowText.isEmpty()) {
+                        sb.append(rowText).append("\n");
+                    }
+                }
+                sb.append("\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    private String extractFromText(String filePath) throws Exception {
+        return Files.readString(Path.of(filePath), StandardCharsets.UTF_8);
+    }
+
+    private String getCellStringValue(XSSFCell cell) {
+        try {
+            return switch (cell.getCellType()) {
+                case STRING -> cell.getStringCellValue().trim();
+                case NUMERIC -> {
+                    double val = cell.getNumericCellValue();
+                    if (val == Math.floor(val)) yield String.valueOf((long) val);
+                    else yield String.valueOf(val);
+                }
+                case BOOLEAN -> String.valueOf(cell.getBooleanCellValue());
+                case FORMULA -> {
+                    try { yield cell.getStringCellValue(); }
+                    catch (Exception e) { yield String.valueOf(cell.getNumericCellValue()); }
+                }
+                default -> "";
+            };
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /**
+     * 调用LLM进行结构化抽取（阶段1）
+     * 使用DashScope的通义千问模型
+     */
+    private List<ExtractedFieldEntity> callLlmExtract(Long docId, String textContent, String fileName) {
+        // 截断过长文本
+        if (textContent.length() > 15000) {
+            textContent = textContent.substring(0, 15000) + "\n...(文本已截断)";
+        }
+
+        String prompt = buildExtractionPrompt(textContent, fileName);
+
+        String response;
+        try {
+            response = chatClient.prompt()
+                    .user(prompt)
+                    .call()
+                    .content();
+        } catch (Exception e) {
+            log.error("LLM抽取调用失败: {}", e.getMessage());
+            throw new RuntimeException("AI抽取失败: " + e.getMessage());
+        }
+
+        return parseExtractionResponse(docId, response);
+    }
+
+    private String buildExtractionPrompt(String textContent, String fileName) {
+        return """
+                你是一个专业的文档信息抽取助手。请从以下文档内容中抽取所有关键字段信息。
+                
+                文件名：%s
+                
+                文档内容：
+                %s
+                
+                请严格按照以下JSON格式输出抽取结果，不要输出任何其他内容：
+                {
+                  "doc_title": "文档标题",
+                  "doc_type": "文档类型",
+                  "fields": [
+                    {
+                      "field_key": "标准化字段键（英文，如project_name）",
+                      "field_name": "原始字段名（如：项目名称）",
+                      "field_value": "字段值",
+                      "field_type": "text|date|number|phone|org|person|enum",
+                      "aliases": ["可能的别名"],
+                      "source_text": "原文中包含该字段的语句",
+                      "source_location": "字段在文档中的大致位置描述",
+                      "confidence": 0.95
+                    }
+                  ],
+                  "summary": "文档内容摘要"
+                }
+                
+                抽取要求：
+                1. 尽可能抽取所有有意义的字段，包括人名、机构名、日期、电话、地址、金额等
+                2. field_type必须准确标注
+                3. 每个字段必须带source_text原文证据
+                4. confidence表示你对该抽取结果的置信度(0-1)
+                5. 不要编造不存在的信息
+                6. 对于表格数据，按行列关系抽取字段
+                """.formatted(fileName, textContent);
+    }
+
+    private List<ExtractedFieldEntity> parseExtractionResponse(Long docId, String response) {
+        List<ExtractedFieldEntity> fields = new ArrayList<>();
+
+        try {
+            // 尝试从响应中提取JSON
+            String jsonStr = extractJsonFromResponse(response);
+            JSONObject result = JSON.parseObject(jsonStr);
+            JSONArray fieldsArray = result.getJSONArray("fields");
+
+            if (fieldsArray != null) {
+                for (int i = 0; i < fieldsArray.size(); i++) {
+                    JSONObject fieldObj = fieldsArray.getJSONObject(i);
+                    ExtractedFieldEntity entity = new ExtractedFieldEntity();
+                    entity.setDocId(docId);
+                    entity.setFieldKey(fieldObj.getString("field_key"));
+                    entity.setFieldName(fieldObj.getString("field_name"));
+                    entity.setFieldValue(fieldObj.getString("field_value"));
+                    entity.setFieldType(fieldObj.getString("field_type"));
+
+                    JSONArray aliasArray = fieldObj.getJSONArray("aliases");
+                    if (aliasArray != null) {
+                        entity.setAliases(aliasArray.toJSONString());
+                    }
+
+                    entity.setSourceText(fieldObj.getString("source_text"));
+                    entity.setSourceLocation(fieldObj.getString("source_location"));
+
+                    BigDecimal conf = fieldObj.getBigDecimal("confidence");
+                    entity.setConfidence(conf != null ? conf : new BigDecimal("0.80"));
+
+                    fields.add(entity);
+                }
+            }
+        } catch (Exception e) {
+            log.error("解析LLM抽取结果失败: {}", e.getMessage());
+            // 尝试简单的键值对抽取作为fallback
+            fields = fallbackExtraction(docId, response);
+        }
+
+        return fields;
+    }
+
+    private String extractJsonFromResponse(String response) {
+        // 去掉可能的markdown代码块标记
+        response = response.trim();
+        if (response.startsWith("```json")) {
+            response = response.substring(7);
+        } else if (response.startsWith("```")) {
+            response = response.substring(3);
+        }
+        if (response.endsWith("```")) {
+            response = response.substring(0, response.length() - 3);
+        }
+        return response.trim();
+    }
+
+    private List<ExtractedFieldEntity> fallbackExtraction(Long docId, String text) {
+        List<ExtractedFieldEntity> fields = new ArrayList<>();
+        // 简单正则抽取 "键：值" 或 "键: 值" 模式
+        Pattern pattern = Pattern.compile("([\\u4e00-\\u9fa5a-zA-Z]{2,15})[：:](\\s*)([^\\n]{1,200})");
+        Matcher matcher = pattern.matcher(text);
+        while (matcher.find()) {
+            ExtractedFieldEntity field = new ExtractedFieldEntity();
+            field.setDocId(docId);
+            field.setFieldName(matcher.group(1).trim());
+            field.setFieldValue(matcher.group(3).trim());
+            field.setFieldKey(normalizeFieldKey(matcher.group(1).trim()));
+            field.setFieldType("text");
+            field.setSourceText(matcher.group(0));
+            field.setConfidence(new BigDecimal("0.60"));
+            fields.add(field);
+        }
+        return fields;
+    }
+
+    /**
+     * 标准化字段（阶段2）
+     */
+    private void standardizeField(ExtractedFieldEntity field) {
+        // 文本清洗
+        if (field.getFieldName() != null) {
+            field.setFieldName(cleanFieldName(field.getFieldName()));
+        }
+        if (field.getFieldValue() != null) {
+            field.setFieldValue(field.getFieldValue().trim());
+        }
+
+        // 字段名标准化
+        String stdKey = normalizeFieldKey(field.getFieldName());
+        if (stdKey != null) {
+            field.setFieldKey(stdKey);
+        }
+
+        // 值格式化
+        if ("date".equals(field.getFieldType()) && field.getFieldValue() != null) {
+            field.setFieldValue(normalizeDateValue(field.getFieldValue()));
+        }
+        if ("phone".equals(field.getFieldType()) && field.getFieldValue() != null) {
+            field.setFieldValue(field.getFieldValue().replaceAll("[^0-9+]", ""));
+        }
+    }
+
+    private String cleanFieldName(String name) {
+        return name.replaceAll("[：:()（）\\n\\r\\t]", "").trim();
+    }
+
+    private String normalizeFieldKey(String fieldName) {
+        if (fieldName == null) return "unknown";
+        for (Map.Entry<String, List<String>> entry : ALIAS_MAP.entrySet()) {
+            for (String alias : entry.getValue()) {
+                if (fieldName.contains(alias) || alias.contains(fieldName)) {
+                    return entry.getKey();
+                }
+            }
+        }
+        // 如果没找到标准映射，保留原key
+        return fieldName.toLowerCase()
+                .replaceAll("[\\s\\u4e00-\\u9fa5]", "_")
+                .replaceAll("_+", "_")
+                .replaceAll("^_|_$", "");
+    }
+
+    private String normalizeDateValue(String value) {
+        // 尝试将各种日期格式统一为YYYY-MM-DD
+        value = value.replaceAll("[年/]", "-").replaceAll("[月日]", "");
+        return value.trim();
+    }
+
+    private void updateAliasDict(ExtractedFieldEntity field) {
+        if (field.getFieldKey() == null || field.getFieldName() == null) return;
+
+        // 检查是否已存在
+        Long count = fieldAliasDictMapper.selectCount(
+                new LambdaQueryWrapper<FieldAliasDictEntity>()
+                        .eq(FieldAliasDictEntity::getStandardKey, field.getFieldKey())
+                        .eq(FieldAliasDictEntity::getAliasName, field.getFieldName())
+        );
+        if (count == 0) {
+            FieldAliasDictEntity alias = new FieldAliasDictEntity();
+            alias.setStandardKey(field.getFieldKey());
+            alias.setAliasName(field.getFieldName());
+            alias.setFieldType(field.getFieldType());
+            fieldAliasDictMapper.insert(alias);
+        }
+    }
+
+    private String getFileType(String fileName) {
+        if (fileName == null) return "txt";
+        int dot = fileName.lastIndexOf('.');
+        if (dot < 0) return "txt";
+        return fileName.substring(dot + 1).toLowerCase();
+    }
+}

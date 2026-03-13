@@ -1,0 +1,22 @@
+version: '3.8'
+#启动命令 docker compose -p docai -f docker-compose-redis.yml up -d
+services:
+  docai-redis:
+    container_name: docai-redis
+    image: redis:7.0.15
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis/conf/redis.conf:/usr/local/etc/redis/redis.conf
+      - ../data/docaidata/redis/data:/data
+    command: redis-server /usr/local/etc/redis/redis.conf
+    restart: always
+    networks:
+      - docai_network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+networks:
+  docai_network:

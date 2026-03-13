@@ -1,0 +1,48 @@
+version: '3.8'
+#启动命令 docker compose -p docai -f docker-compose-mysql.yml up -d
+services:
+  docai-mysql:
+    container_name: docai-mysql
+    image: mysql:8.4.2
+    ports:
+      - "3306:3306"
+    volumes:
+      # 数据挂载
+      - ../data/docaidata/mysql/data:/var/lib/mysql
+      # 配置挂载
+      - ./mysql/init/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./mysql/sql:/opt/sql
+    command: [
+      'mysqld',
+      '--innodb-buffer-pool-size=80M',        # InnoDB 缓冲池大小
+      '--character-set-server=utf8mb4',       # 字符集
+      '--collation-server=utf8mb4_unicode_ci', # 排序规则
+      '--default-time-zone=+8:00',            # 时区设置
+      '--lower-case-table-names=1',           # 表名大小写不敏感
+      '--explicit_defaults_for_timestamp=true', # 时间戳默认值
+      '--server-id=1',                        # 主从复制服务器ID
+      '--log-bin=mysql-bin',                  # 二进制日志
+      '--binlog-ignore-db=mysql',             # 忽略系统库的 binlog
+      '--binlog-cache-size=256M',             # binlog 缓存大小
+      '--binlog-format=ROW',                  # binlog 格式
+      '--max_connections=2000'                # 最大连接数
+    ]
+    restart: always
+    networks:
+      - docai_network
+    healthcheck:
+      test: mysql --user=drw -h127.0.0.1 --password='dairenwen1092' -e "SELECT 1;"
+      start_period: 30s
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_ROOT_PASSWORD: Dairenwen1092
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 20000
+        hard: 40000
+networks:
+  docai_network:

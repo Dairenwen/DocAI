@@ -1,0 +1,70 @@
+version: '3.8'
+#启动命令 docker compose -p docai -f docker-compose-mid.yml up -d
+services:
+  docai-redis:
+    container_name: docai-redis
+    image: redis:7.0.15
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis/conf/redis.conf:/usr/local/etc/redis/redis.conf
+      - ../data/docaidata/redis/data:/data
+    command: redis-server /usr/local/etc/redis/redis.conf
+    restart: always
+    networks:
+      - docai_network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  docai-nacos:
+    container_name: docai-nacos
+    image: nacos/nacos-server:v2.2.2
+    environment:
+      - MODE=standalone
+      - JVM_XMS=512m
+      - JVM_XMX=512m
+      - JVM_XMN=256m
+      - SPRING_DATASOURCE_PLATFORM=mysql
+      - MYSQL_SERVICE_HOST=host.docker.internal
+      - MYSQL_SERVICE_PORT=3306
+      - MYSQL_SERVICE_DB_NAME=docai_nacos
+      - MYSQL_DATABASE_NUM=1
+      - MYSQL_SERVICE_USER=drw
+      - MYSQL_SERVICE_PASSWORD=dairenwen1092
+      - MYSQL_SERVICE_DB_PARAM=characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useSSL=false
+    volumes:
+      - ../data/docaidata/nacos/logs/:/home/nacos/logs
+      - ../data/docaidata/nacos/tomcatlogs/:/home/nacos/tomcat/logs/
+      - ./nacos/conf/application.properties:/home/nacos/conf/application.properties
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+      - "9849:9849"
+    restart: always
+    networks:
+      - docai_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8848/nacos" ]
+      start_period: 30s
+      interval: 10s
+      timeout: 10s
+      retries: 10
+  docai-web:
+    image: nginx:1.24.0
+    container_name: docai-web
+    restart: always
+    network_mode: host
+    volumes:
+      - ./nginx/conf/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/web/dist:/data/docaidata/web/dist
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 20000
+        hard: 40000
+networks:
+  docai_network:
