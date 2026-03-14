@@ -155,14 +155,36 @@ public class TemplateFillServiceImpl implements TemplateFillService {
         );
         if (slots.isEmpty()) throw new RuntimeException("模板未解析槽位，请先解析");
 
-        // 获取所有候选字段
+        // 获取所有候选字段（仅当前用户的文档）
         List<ExtractedFieldEntity> allFields;
         if (docIds != null && !docIds.isEmpty()) {
+            // 验证docIds都属于当前用户
+            List<SourceDocumentEntity> userDocs = sourceDocumentMapper.selectList(
+                    new LambdaQueryWrapper<SourceDocumentEntity>()
+                            .eq(SourceDocumentEntity::getUserId, userId)
+                            .in(SourceDocumentEntity::getId, docIds)
+            );
+            List<Long> validDocIds = userDocs.stream().map(SourceDocumentEntity::getId).toList();
+            if (validDocIds.isEmpty()) {
+                throw new RuntimeException("未找到有效的数据源文档");
+            }
             allFields = extractedFieldMapper.selectList(
-                    new LambdaQueryWrapper<ExtractedFieldEntity>().in(ExtractedFieldEntity::getDocId, docIds)
+                    new LambdaQueryWrapper<ExtractedFieldEntity>().in(ExtractedFieldEntity::getDocId, validDocIds)
             );
         } else {
-            allFields = extractedFieldMapper.selectList(null);
+            // 仅获取当前用户的已解析文档
+            List<SourceDocumentEntity> userDocs = sourceDocumentMapper.selectList(
+                    new LambdaQueryWrapper<SourceDocumentEntity>()
+                            .eq(SourceDocumentEntity::getUserId, userId)
+                            .eq(SourceDocumentEntity::getUploadStatus, "parsed")
+            );
+            List<Long> userDocIds = userDocs.stream().map(SourceDocumentEntity::getId).toList();
+            if (userDocIds.isEmpty()) {
+                throw new RuntimeException("当前用户没有已提取的源文档数据");
+            }
+            allFields = extractedFieldMapper.selectList(
+                    new LambdaQueryWrapper<ExtractedFieldEntity>().in(ExtractedFieldEntity::getDocId, userDocIds)
+            );
         }
 
         // 获取别名词典
@@ -171,6 +193,9 @@ public class TemplateFillServiceImpl implements TemplateFillService {
         for (FieldAliasDictEntity a : aliasDictList) {
             aliasDict.computeIfAbsent(a.getStandardKey(), k -> new ArrayList<>()).add(a.getAliasName());
         }
+
+        // 生成审计批次ID
+        String auditId = "audit_" + templateId + "_" + System.currentTimeMillis();
 
         // 对每个槽位进行候选召回和决策
         List<FillDecisionEntity> decisions = new ArrayList<>();
@@ -189,6 +214,7 @@ public class TemplateFillServiceImpl implements TemplateFillService {
             applyConfidenceThreshold(decision);
 
             decision.setTemplateId(templateId);
+            decision.setAuditId(auditId);
             fillDecisionMapper.insert(decision);
             decisions.add(decision);
 
@@ -201,6 +227,8 @@ public class TemplateFillServiceImpl implements TemplateFillService {
 
             // 阶段8：审计日志
             FillAuditLogEntity auditLog = createAuditLog(templateId, slot, decision, candidates);
+            auditLog.setAuditId(auditId);
+            auditLog.setUserId(userId);
             fillAuditLogMapper.insert(auditLog);
             auditLogs.add(auditLog);
         }
@@ -219,6 +247,7 @@ public class TemplateFillServiceImpl implements TemplateFillService {
         result.put("filledCount", filledCount);
         result.put("blankCount", blankCount);
         result.put("totalSlots", slots.size());
+        result.put("auditId", auditId);
         result.put("auditLogs", auditLogs);
 
         return result;
@@ -631,10 +660,10 @@ public class TemplateFillServiceImpl implements TemplateFillService {
     // ===== 阶段7：模板写回 =====
 
     private String writeBack(TemplateFileEntity tpl, List<TemplateSlotEntity> slots, List<FillDecisionEntity> decisions) throws Exception {
-        // 构建slotLabel -> decision的映射
+        // 构建slotId -> decision的映射（使用slotId避免label重复冲突）
         Map<String, FillDecisionEntity> decisionMap = new HashMap<>();
         for (FillDecisionEntity d : decisions) {
-            decisionMap.put(d.getSlotLabel(), d);
+            decisionMap.put(d.getSlotId(), d);
         }
 
         String outputPath;
@@ -656,7 +685,7 @@ public class TemplateFillServiceImpl implements TemplateFillService {
              XSSFWorkbook workbook = new XSSFWorkbook(fis)) {
 
             for (TemplateSlotEntity slot : slots) {
-                FillDecisionEntity decision = decisionMap.get(slot.getLabel());
+                FillDecisionEntity decision = decisionMap.get(slot.getId().toString());
                 if (decision == null || decision.getFinalValue() == null || decision.getFinalValue().isEmpty()) continue;
 
                 JSONObject pos = JSON.parseObject(slot.getPosition());
@@ -698,7 +727,7 @@ public class TemplateFillServiceImpl implements TemplateFillService {
              XWPFDocument doc = new XWPFDocument(fis)) {
 
             for (TemplateSlotEntity slot : slots) {
-                FillDecisionEntity decision = decisionMap.get(slot.getLabel());
+                FillDecisionEntity decision = decisionMap.get(slot.getId().toString());
                 if (decision == null || decision.getFinalValue() == null || decision.getFinalValue().isEmpty()) continue;
 
                 JSONObject pos = JSON.parseObject(slot.getPosition());

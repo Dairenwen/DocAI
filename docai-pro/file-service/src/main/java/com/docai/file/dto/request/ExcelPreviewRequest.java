@@ -13,12 +13,14 @@ public class ExcelPreviewRequest {
     /**
      * 页码
      */
+    @Builder.Default
     private Integer page = 1;
 
 
     /**
      * 每页的行数
      */
+    @Builder.Default
     private Integer pageSize = 20;
 
     /**

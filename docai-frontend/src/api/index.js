@@ -34,6 +34,7 @@ export const getSourceDocuments = () => request.get('/source/documents')
 export const getDocuments = () => getSourceDocuments()
 export const getDocument = (id) => request.get(`/source/${id}`)
 export const getDocumentFields = (id) => request.get(`/source/${id}/fields`)
+export const downloadSourceDocument = (docId) => request.get(`/source/${docId}/download`, { responseType: 'blob' })
 
 export const getDocumentStats = async () => {
   const res = await getSourceDocuments()
@@ -50,8 +51,8 @@ export const getDocumentStats = async () => {
   }
 }
 
-export const deleteDocument = () => Promise.reject(new Error('后端暂不支持删除源文档'))
-export const batchDeleteDocuments = () => Promise.reject(new Error('后端暂不支持删除源文档'))
+export const deleteDocument = (docId) => request.delete(`/source/${docId}`)
+export const batchDeleteDocuments = (docIds) => request.delete('/source/batch', { data: { docIds } })
 
 // ==================== 模板自动填表 ====================
 
@@ -162,10 +163,19 @@ export const aiChat = async ({ message, documentId }) => {
             finalText = 'AI 已完成处理，但未返回可展示文本。'
           }
         }
+        // 从进度事件中提取AI响应内容（用于兜底）
+        if (!finalText && payload.aiResponseContent) {
+          finalText = payload.aiResponseContent
+        }
       } catch (e) {
         if (e instanceof Error) throw e
       }
     }
+  }
+
+  // 如果流结束但没有收到complete事件，使用兜底信息
+  if (!finalText) {
+    finalText = '请求已完成，但未收到完整的AI响应。请检查后端服务状态后重试。'
   }
 
   return {
@@ -176,6 +186,8 @@ export const aiChat = async ({ message, documentId }) => {
 }
 
 export const sendAiResultEmail = (data) => request.post('/ai/send-email', data)
+
+export const sendContentEmail = (data) => request.post('/ai/send-content-email', data)
 
 export const aiGenerate = () => Promise.reject(new Error('当前后端未提供 AI 写作生成接口'))
 export const aiPolish = () => Promise.reject(new Error('当前后端未提供 AI 润色接口'))

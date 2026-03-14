@@ -10,34 +10,25 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class DashScopeConfig {
 
-    // dashscope密钥
-    @Value("${spring.ai.alibaba.dashscope.api-key}")
+    @Value("${spring.ai.alibaba.dashscope.api-key:}")
     private String apiKey;
 
-
-    // dashscope下面的模型
-    @Value("${spring.ai.alibaba.dashscope.chat.options.model}")
+    @Value("${spring.ai.alibaba.dashscope.chat.options.model:qwen-plus}")
     private String model;
 
-
-    // dashscope温度参数
-    @Value("${spring.ai.alibaba.dashscope.chat.options.temperature}")
+    @Value("${spring.ai.alibaba.dashscope.chat.options.temperature:0.7}")
     private Double temperature;
 
-    // 生成的最大token数
-    @Value("${spring.ai.alibaba.dashscope.chat.options.max-tokens}")
+    @Value("${spring.ai.alibaba.dashscope.chat.options.max-tokens:2048}")
     private Integer maxTokens;
 
-    // 大模型连接超时时间
-    @Value("${spring.ai.alibaba.dashscope.http.connect-timeout}")
+    @Value("${spring.ai.alibaba.dashscope.http.connect-timeout:60000}")
     private Integer connectTimeout;
 
-    // 大模型读取超时时间
-    @Value("${spring.ai.alibaba.dashscope.http.read-timeout}")
+    @Value("${spring.ai.alibaba.dashscope.http.read-timeout:60000}")
     private Integer readTimeout;
 
-    // 大模型写入超时时间
-    @Value("${spring.ai.alibaba.dashscope.http.write-timeout}")
+    @Value("${spring.ai.alibaba.dashscope.http.write-timeout:60000}")
     private Integer writeTimeout;
 
     @Bean("dashScopeLlmConfig")

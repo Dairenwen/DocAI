@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -44,35 +45,56 @@ public class DeepSeekProvider extends AbstractLlmProvider {
 
     @Override
     public String generateText(String prompt) {
+        return callDeepSeek(prompt, config.getModel());
+    }
+
+    @Override
+    public String generateText(String prompt, String modelName) {
+        return callDeepSeek(prompt, (modelName != null && !modelName.isBlank()) ? modelName : config.getModel());
+    }
+
+    private static final List<String> SUPPORTED_MODELS = List.of(
+        "deepseek-chat",
+        "deepseek-reasoner"
+    );
+
+    @Override
+    public List<String> getSupportedModels() {
+        return SUPPORTED_MODELS;
+    }
+
+    @Override
+    public String getDefaultModel() {
+        return config.getModel();
+    }
+
+    private String callDeepSeek(String prompt, String model) {
         // 1. 构建请求体
         Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("model", config.getModel()); // 添加模型
+        requestBody.put("model", model);
         requestBody.put("messages", new Object[] {
                 Map.of("role", "user", "content", prompt)
-        });  // 请求内容
-        requestBody.put("temperature", config.getTemperature()); // 请求温度
-        requestBody.put("max_tokens", config.getMaxTokens());  // 最大token数
-        requestBody.put("stream", false); // 直接返回
+        });
+        requestBody.put("temperature", config.getTemperature());
+        requestBody.put("max_tokens", config.getMaxTokens());
+        requestBody.put("stream", false);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("Authorization", "Bearer " + config.getApiKey());
 
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
-        // 2. 发送请求
         String url = config.getBaseUrl() + "/v1/chat/completions";
-        // 3. 得到响应
         ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
 
-        // 4. 封装结果
         if (response.getStatusCode() == HttpStatus.OK) {
             try {
                 JsonNode jsonNode = objectMapper.readTree((response.getBody()));
                 String content = jsonNode.path("choices").get(0).path("message").path("content").asText();
-                log.info("调用DeepSeek大模型成功: 提示词: {}, 返回结果：{}", prompt, content);
+                log.info("调用DeepSeek大模型(模型:{})成功，结果长度：{}", model, content != null ? content.length() : 0);
                 return content;
             } catch (JsonProcessingException e) {
-                log.error("调用DeepSeek大模型失败: {}", prompt);
+                log.error("调用DeepSeek大模型失败: {}", e.getMessage());
                 throw new RuntimeException(e);
             }
         }

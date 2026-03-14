@@ -1,1 +1,0 @@
-{"code":200,"message":"文档上传并抽取成功","data":{"id":10000011,"userId":10000023,"fileName":"source.md","fileType":"md","storagePath":"C:\\Users\\19624\\AppData\\Local\\Temp\\docai_source_15903955542939483012\\source.md","ossKey":"source.md","fileSize":125,"uploadStatus":"parsed","docSummary":"4个字段已抽取","createdAt":null,"updatedAt":null}}

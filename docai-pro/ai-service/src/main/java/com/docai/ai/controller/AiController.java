@@ -3,6 +3,7 @@ package com.docai.ai.controller;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.docai.ai.dto.request.AiChatRequest;
 import com.docai.ai.dto.request.AiRequestHistoryRequest;
+import com.docai.ai.dto.request.SendContentEmailRequest;
 import com.docai.ai.dto.request.SendEmailRequest;
 import com.docai.ai.dto.response.AiRequestHistoryResponse;
 import com.docai.ai.service.AiService;
@@ -36,7 +37,9 @@ public class AiController {
             @RequestBody AiChatRequest aiChatRequest
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
-        SseEmitter sseEmitter = new SseEmitter();
+        SseEmitter sseEmitter = new SseEmitter(300_000L);
+        sseEmitter.onTimeout(sseEmitter::complete);
+        sseEmitter.onError(e -> sseEmitter.complete());
         if (userId == null) {
             try {
                 sseEmitter.send(SseEmitter
@@ -52,7 +55,17 @@ public class AiController {
         }
 
         new Thread(() -> {
-            aiService.streamUnifiedChat(aiChatRequest, userId, sseEmitter);
+            try {
+                aiService.streamUnifiedChat(aiChatRequest, userId, sseEmitter);
+            } catch (Exception e) {
+                try {
+                    sseEmitter.send(SseEmitter.event().name("error")
+                            .data("{\"error\":\"服务处理异常，请稍后重试\"}"));
+                    sseEmitter.complete();
+                } catch (Exception ignored) {
+                    sseEmitter.completeWithError(e);
+                }
+            }
         }).start();
 
         return sseEmitter;
@@ -84,6 +97,23 @@ public class AiController {
             return Result.badRequest("无效的令牌");
         }
         return Result.success("邮件发送成功", aiService.sendEmailWithExcel(sendEmailRequest));
+    }
+
+    // 发送AI内容到邮箱（纯文本/HTML）
+    @PostMapping("/send-content-email")
+    public Result<Boolean> sendContentEmail(
+            @RequestHeader("Authorization") String authorization,
+            @RequestBody @Validated SendContentEmailRequest request
+    ) {
+        Long userId = jwtUtil.getUserIdByAuthorization(authorization);
+        if (userId == null) {
+            return Result.badRequest("无效的令牌");
+        }
+        try {
+            return Result.success("邮件发送成功", aiService.sendContentEmail(request));
+        } catch (RuntimeException e) {
+            return Result.serverError(e.getMessage());
+        }
     }
 
 }

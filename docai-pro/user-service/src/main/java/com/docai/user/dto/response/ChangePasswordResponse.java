@@ -23,5 +23,6 @@ public class ChangePasswordResponse {
     /**
      * 是否成功
      */
+    @Builder.Default
     private boolean success = true;
 }

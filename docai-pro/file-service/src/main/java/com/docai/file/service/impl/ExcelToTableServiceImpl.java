@@ -334,7 +334,12 @@ public class ExcelToTableServiceImpl implements ExcelToTableService {
      * @param fileId 文件ID
      * @param sheetIndex sheet所在的索引位置
      */
+    private static final java.util.regex.Pattern SAFE_TABLE_NAME = java.util.regex.Pattern.compile("^[a-zA-Z0-9_]{1,128}$");
+
     private void createTableFromExcel(String tableName, MultipartFile file, Long fileId, int sheetIndex) {
+        if (tableName == null || !SAFE_TABLE_NAME.matcher(tableName).matches()) {
+            throw new IllegalArgumentException("非法的表名: " + tableName);
+        }
         // 1. 读取excel的表头
         try {
             List<String> headers = readHeader(file, sheetIndex);

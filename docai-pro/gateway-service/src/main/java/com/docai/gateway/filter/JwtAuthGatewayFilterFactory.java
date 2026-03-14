@@ -91,6 +91,9 @@ public class JwtAuthGatewayFilterFactory extends AbstractGatewayFilterFactory<Jw
 
     private String getToken(ServerHttpRequest request) {
         String authorization = request.getHeaders().getFirst("Authorization");
+        if (authorization == null || authorization.isEmpty()) {
+            return "";
+        }
         if (authorization.startsWith("Bearer ")) {
             return authorization.substring(7);
         }

@@ -4,7 +4,7 @@ services:
     container_name: docai-mysql
     image: mysql:8.4.2
     ports:
-      - "3306:3306"
+      - "${MYSQL_HOST_PORT:-3306}:3306"
     volumes:
       - ../data/docaidata/mysql/data:/var/lib/mysql
       - ./mysql/init/init.sql:/docker-entrypoint-initdb.d/init.sql

@@ -76,7 +76,13 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(RuntimeException.class)
     public Result<Void> handleRuntimeException(RuntimeException e) {
-        log.error("业务运行异常:{}", e.getMessage());
-        return Result.serverError(e.getMessage());
+        log.error("业务运行异常", e);
+        return Result.serverError("服务器内部错误，请稍后重试");
+    }
+
+    @ExceptionHandler(Exception.class)
+    public Result<Void> handleException(Exception e) {
+        log.error("未处理异常", e);
+        return Result.serverError("服务器内部错误，请稍后重试");
     }
 }

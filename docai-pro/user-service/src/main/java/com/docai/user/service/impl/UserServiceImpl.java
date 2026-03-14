@@ -167,8 +167,14 @@ public class UserServiceImpl implements UserService {
             throw new IllegalArgumentException("令牌无效");
         }
 
-        // 4. 获取到用户信息之后进行修改操作
+        // 4. 获取到用户信息之后，先验证原密码
         UserEntity user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new IllegalArgumentException("用户不存在");
+        }
+        if (user.getPasswordHash() != null && !passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
+            throw new IllegalArgumentException("当前密码不正确");
+        }
 
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         userMapper.updateById(user);

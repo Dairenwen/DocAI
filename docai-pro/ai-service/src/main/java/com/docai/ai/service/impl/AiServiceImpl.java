@@ -9,10 +9,15 @@ import com.docai.ai.config.AiRequestStatus;
 import com.docai.ai.config.ProcessStage;
 import com.docai.ai.dto.request.AiChatRequest;
 import com.docai.ai.dto.request.AiRequestHistoryRequest;
+import com.docai.ai.dto.request.SendContentEmailRequest;
 import com.docai.ai.dto.request.SendEmailRequest;
 import com.docai.ai.dto.response.*;
 import com.docai.ai.entity.AiRequestEntity;
+import com.docai.ai.entity.ExtractedFieldEntity;
+import com.docai.ai.entity.SourceDocumentEntity;
 import com.docai.ai.mapper.AiRequestMapper;
+import com.docai.ai.mapper.ExtractedFieldMapper;
+import com.docai.ai.mapper.SourceDocumentMapper;
 import com.docai.ai.service.AiModelService;
 import com.docai.ai.service.AiService;
 import com.docai.ai.service.FileMetaDataService;
@@ -26,6 +31,8 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.*;
+import org.apache.poi.xwpf.usermodel.*;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -34,6 +41,9 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -49,6 +59,12 @@ public class AiServiceImpl implements AiService {
 
     @Autowired
     private AiRequestMapper aiRequestMapper;
+
+    @Autowired
+    private SourceDocumentMapper sourceDocumentMapper;
+
+    @Autowired
+    private ExtractedFieldMapper extractedFieldMapper;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -70,6 +86,9 @@ public class AiServiceImpl implements AiService {
     private OssService ossService;
 
     @Autowired
+    private com.docai.common.service.EmailService emailService;
+
+    @Autowired
     @Qualifier("toolCallingChatClient")
     private ChatClient toolCallingChatClient;
 
@@ -78,6 +97,7 @@ public class AiServiceImpl implements AiService {
     public void streamUnifiedChat(AiChatRequest aiChatRequest, Long userId, SseEmitter sseEmitter) {
         // 1. 通知前端，可以开始处理请求了
         AiRequestEntity aiRequestEntity = null;
+        try {
         sendProgressEventWithData(sseEmitter, ProcessStage.INIT.getCode(), ProcessStage.INIT,
                 "开始处理AI请求...", null, null, null, null);
         aiRequestEntity = initStreamRequest(aiChatRequest, userId);
@@ -90,7 +110,25 @@ public class AiServiceImpl implements AiService {
             return;
         }
 
-        // 2. 校验文件的权限
+        // 先尝试在 file-service 的 files 表查找（Excel文件）
+        FilesEntity filesEntity = fileMetaDataService.getFileById(userId, aiChatRequest.getFileId());
+
+        // 如果 files 表找不到，尝试在 source_documents 表查找（源文档）
+        if (filesEntity == null) {
+            SourceDocumentEntity sourceDoc = sourceDocumentMapper.selectById(aiChatRequest.getFileId());
+            if (sourceDoc != null && sourceDoc.getUserId().equals(userId)) {
+                // 源文档走带上下文的通用对话
+                AiUnifiedResponse docChatResponse = handleSourceDocChatFlow(
+                        aiChatRequest, aiRequestEntity, sourceDoc, sseEmitter);
+                sendCompleteEvent(sseEmitter, docChatResponse);
+                sseEmitter.complete();
+                return;
+            }
+            // 两个表都找不到
+            throw new IllegalArgumentException("文档不存在或没有权限");
+        }
+
+        // 2. 校验文件的权限（files表中的Excel文件流程）
         List<String> tableNames = validateFileAndSendProgress(aiChatRequest, userId, sseEmitter);
 
         // 3. 查询表信息（表结构）
@@ -128,6 +166,25 @@ public class AiServiceImpl implements AiService {
         // 6. 事件处理，汇总
         sendCompleteEvent(sseEmitter, response);
         sseEmitter.complete();
+        } catch (Exception e) {
+            log.error("streamUnifiedChat处理异常: {}", e.getMessage(), e);
+            AiUnifiedResponse errorResponse = AiUnifiedResponse.builder()
+                    .aiResponse("抱歉，服务处理过程中发生异常：" + (e.getMessage() != null ? e.getMessage() : "未知错误") + "。请稍后重试。")
+                    .sqlQuery(null)
+                    .resultData(Collections.emptyList())
+                    .resultCount(0)
+                    .status(AiRequestStatus.FAILED.getCode())
+                    .needChart(false)
+                    .isModificationRequest(false)
+                    .modifiedExcelUrl(null)
+                    .build();
+            try {
+                sendCompleteEvent(sseEmitter, errorResponse);
+                sseEmitter.complete();
+            } catch (Exception ignored) {
+                sseEmitter.completeWithError(e);
+            }
+        }
     }
 
         private AiUnifiedResponse handleGeneralChatFlow(
@@ -180,6 +237,184 @@ public class AiServiceImpl implements AiService {
                 .build();
         }
         }
+
+        /**
+         * 处理源文档关联的对话流程：使用文档提取字段作为上下文
+         */
+        private AiUnifiedResponse handleSourceDocChatFlow(
+            AiChatRequest aiChatRequest,
+            AiRequestEntity aiRequestEntity,
+            SourceDocumentEntity sourceDoc,
+            SseEmitter sseEmitter
+        ) {
+        sendProgressEventWithData(sseEmitter, PROGRESS, ProcessStage.PROCESS_CHAT,
+            "已关联源文档：" + sourceDoc.getFileName() + "，正在读取原文内容", null, null, null, null);
+
+        try {
+            // 读取原文件内容作为上下文
+            String rawContent = readSourceDocContent(sourceDoc);
+
+            StringBuilder context = new StringBuilder();
+            context.append("文档名称：").append(sourceDoc.getFileName()).append("\n\n");
+            if (rawContent != null && !rawContent.isBlank()) {
+                // 限制上下文长度，避免超出LLM token限制
+                String trimmed = rawContent.length() > 15000 ? rawContent.substring(0, 15000) + "\n...(内容已截断)" : rawContent;
+                context.append("=== 文档原文内容 ===\n").append(trimmed).append("\n=== 原文结束 ===\n");
+            } else {
+                // 回退到提取字段
+                log.warn("无法读取源文档原文，回退到提取字段: docId={}", sourceDoc.getId());
+                if (sourceDoc.getDocSummary() != null && !sourceDoc.getDocSummary().isEmpty()) {
+                    context.append("文档摘要：").append(sourceDoc.getDocSummary()).append("\n");
+                }
+                List<ExtractedFieldEntity> fields = extractedFieldMapper.selectList(
+                    new LambdaQueryWrapper<ExtractedFieldEntity>()
+                        .eq(ExtractedFieldEntity::getDocId, sourceDoc.getId())
+                );
+                if (!fields.isEmpty()) {
+                    context.append("提取字段：\n");
+                    for (ExtractedFieldEntity f : fields) {
+                        context.append("- ").append(f.getFieldName()).append("：").append(f.getFieldValue());
+                        if (f.getSourceText() != null && !f.getSourceText().isEmpty()) {
+                            context.append("（来源：").append(f.getSourceText()).append("）");
+                        }
+                        context.append("\n");
+                    }
+                }
+            }
+
+            String prompt = String.format(
+                "你是DocAI智能助手。以下是用户关联的文档完整内容：\n%s\n\n" +
+                "请根据上述文档的完整原文回答用户问题。如果用户要求编辑、修改、删除、增添内容，请输出修改后的完整文档内容。\n" +
+                "用户问题：%s",
+                context, aiChatRequest.getUserInput()
+            );
+            String reply = llmService.generateText(prompt);
+
+            aiRequestEntity.setAiResponse(reply);
+            aiRequestEntity.setStatus(AiRequestStatus.SUCCESS.getCode());
+            aiRequestMapper.updateById(aiRequestEntity);
+
+            return AiUnifiedResponse.builder()
+                .requestId(aiRequestEntity.getId())
+                .aiResponse(reply)
+                .sqlQuery(null)
+                .resultData(Collections.emptyList())
+                .resultCount(0)
+                .status(AiRequestStatus.SUCCESS.getCode())
+                .needChart(false)
+                .isModificationRequest(false)
+                .modifiedExcelUrl(null)
+                .build();
+        } catch (Exception ex) {
+            log.error("源文档对话失败: {}", ex.getMessage(), ex);
+            String fallbackReply = "抱歉，基于文档\"" + sourceDoc.getFileName() + "\"的AI对话暂时不可用，请稍后重试。";
+            aiRequestEntity.setAiResponse(fallbackReply);
+            aiRequestEntity.setStatus(AiRequestStatus.FAILED.getCode());
+            aiRequestMapper.updateById(aiRequestEntity);
+
+            return AiUnifiedResponse.builder()
+                .requestId(aiRequestEntity.getId())
+                .aiResponse(fallbackReply)
+                .sqlQuery(null)
+                .resultData(Collections.emptyList())
+                .resultCount(0)
+                .status(AiRequestStatus.FAILED.getCode())
+                .needChart(false)
+                .isModificationRequest(false)
+                .modifiedExcelUrl(null)
+                .errorMessage(ex.getMessage())
+                .build();
+        }
+        }
+
+    /**
+     * 读取源文档的原始文本内容
+     */
+    private String readSourceDocContent(SourceDocumentEntity doc) {
+        String storagePath = doc.getStoragePath();
+        if (storagePath == null || storagePath.isBlank()) {
+            log.warn("源文档无存储路径: docId={}", doc.getId());
+            return null;
+        }
+        File file = new File(storagePath);
+        if (!file.exists()) {
+            log.warn("源文档文件不存在: path={}", storagePath);
+            return null;
+        }
+        try {
+            String fileType = doc.getFileType() != null ? doc.getFileType().toLowerCase() : "";
+            return switch (fileType) {
+                case "docx" -> readDocxContent(file);
+                case "xlsx" -> readXlsxContent(file);
+                default -> Files.readString(file.toPath(), StandardCharsets.UTF_8);
+            };
+        } catch (Exception e) {
+            log.error("读取源文档内容失败: path={}, error={}", storagePath, e.getMessage());
+            return null;
+        }
+    }
+
+    private String readDocxContent(File file) throws Exception {
+        StringBuilder sb = new StringBuilder();
+        try (FileInputStream fis = new FileInputStream(file);
+             XWPFDocument doc = new XWPFDocument(fis)) {
+            for (XWPFParagraph para : doc.getParagraphs()) {
+                String text = para.getText();
+                if (text != null && !text.trim().isEmpty()) {
+                    sb.append(text.trim()).append("\n");
+                }
+            }
+            for (XWPFTable table : doc.getTables()) {
+                for (XWPFTableRow row : table.getRows()) {
+                    StringBuilder rowText = new StringBuilder();
+                    row.getTableCells().forEach(cell -> {
+                        String cellText = cell.getText();
+                        if (cellText != null && !cellText.trim().isEmpty()) {
+                            if (!rowText.isEmpty()) rowText.append(" | ");
+                            rowText.append(cellText.trim());
+                        }
+                    });
+                    if (!rowText.isEmpty()) {
+                        sb.append(rowText).append("\n");
+                    }
+                }
+                sb.append("\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    private String readXlsxContent(File file) throws Exception {
+        StringBuilder sb = new StringBuilder();
+        try (FileInputStream fis = new FileInputStream(file);
+             XSSFWorkbook workbook = new XSSFWorkbook(fis)) {
+            DataFormatter formatter = new DataFormatter();
+            for (int s = 0; s < workbook.getNumberOfSheets(); s++) {
+                XSSFSheet sheet = workbook.getSheetAt(s);
+                sb.append("=== Sheet: ").append(sheet.getSheetName()).append(" ===\n");
+                for (int r = 0; r <= sheet.getLastRowNum(); r++) {
+                    Row row = sheet.getRow(r);
+                    if (row == null) continue;
+                    StringBuilder rowText = new StringBuilder();
+                    for (int c = 0; c < row.getLastCellNum(); c++) {
+                        Cell cell = row.getCell(c);
+                        if (cell != null) {
+                            String val = formatter.formatCellValue(cell).trim();
+                            if (!val.isEmpty()) {
+                                if (!rowText.isEmpty()) rowText.append(" | ");
+                                rowText.append(val);
+                            }
+                        }
+                    }
+                    if (!rowText.isEmpty()) {
+                        sb.append(rowText).append("\n");
+                    }
+                }
+                sb.append("\n");
+            }
+        }
+        return sb.toString();
+    }
 
     @Override
     public IPage<AiRequestHistoryResponse> getRequestHistory(AiRequestHistoryRequest aiRequestHistoryRequest, Long userId) {
@@ -244,6 +479,22 @@ public class AiServiceImpl implements AiService {
 
         // 5. 构造响应
         return response.contains("成功");
+    }
+
+    @Override
+    public Boolean sendContentEmail(SendContentEmailRequest request) {
+        String subject = request.getSubject();
+        if (subject == null || subject.isBlank()) {
+            subject = "DocAI - AI生成内容";
+        }
+        String htmlContent = "<html><body>" +
+                "<h3>DocAI AI生成内容</h3>" +
+                "<div style=\"white-space: pre-wrap; font-family: sans-serif; line-height: 1.6;\">" +
+                request.getContent().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>") +
+                "</div>" +
+                "<hr><p style=\"color: #999; font-size: 12px;\">此邮件由 DocAI 系统自动发送</p>" +
+                "</body></html>";
+        return emailService.sendHtmlEmail(request.getEmail(), subject, htmlContent);
     }
 
 

@@ -60,6 +60,13 @@ public class FileServiceImpl implements FilesService {
     @Autowired
     private FieldMappingService fieldMappingService;
 
+    private static final java.util.regex.Pattern SAFE_TABLE_NAME = java.util.regex.Pattern.compile("^[a-zA-Z0-9_]{1,128}$");
+
+    private void validateTableName(String tableName) {
+        if (tableName == null || !SAFE_TABLE_NAME.matcher(tableName).matches()) {
+            throw new IllegalArgumentException("非法的表名: " + tableName);
+        }
+    }
 
     @Override
     public FileUploadResponse upload(MultipartFile file, FileUploadRequest request, Long userId) {
@@ -142,7 +149,7 @@ public class FileServiceImpl implements FilesService {
     public void downloadFile(Long fileId, HttpServletResponse response, Long userId) {
         // 1 查询文件信息
         FilesEntity filesEntity = filesMapper.selectById(fileId);
-        if (fileId == null) {
+        if (filesEntity == null) {
             log.error("文件不存在 {}", fileId);
             response.setStatus(HttpServletResponse.SC_NOT_FOUND);
             try {
@@ -176,8 +183,7 @@ public class FileServiceImpl implements FilesService {
         response.setContentLengthLong(contentLength);
         response.setBufferSize(65536);
 
-        try {
-            InputStream inputStream = ossObject.getObjectContent();
+        try (InputStream inputStream = ossObject.getObjectContent()) {
             OutputStream outputStream = response.getOutputStream();
             byte[] buffer = new byte[65536];
             int byteRead = 0;
@@ -239,8 +245,9 @@ public class FileServiceImpl implements FilesService {
 
 
     private List<Map<String, Object>> getPageData(String tableName, Integer page, Integer pageSize) {
+        validateTableName(tableName);
         int offset = (page - 1) * pageSize;
-        String sql = "SELECT * FROM " + tableName + " ORDER BY id LIMIT ? OFFSET ?";
+        String sql = "SELECT * FROM `" + tableName + "` ORDER BY id LIMIT ? OFFSET ?";
 
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, pageSize, offset);
         return rows.stream()
@@ -327,6 +334,7 @@ public class FileServiceImpl implements FilesService {
         for (int i = 0; i <tableNameList.size(); i++) {
             String tableName = tableNameList.get(i);
             // 4. 清空mysql表
+            validateTableName(tableName);
             String sql = "TRUNCATE TABLE `" + tableName + "`";
             jdbcTemplate.update(sql);
 
@@ -355,6 +363,7 @@ public class FileServiceImpl implements FilesService {
             // 3. 删除衍生出来的表
             List<String> tableNames = fileTableMappingService.getTableNamesByFileId(fileId);
             for (String tableName :tableNames) {
+                validateTableName(tableName);
                 String sql = "DROP TABLE IF EXISTS `" + tableName + "`";
                 jdbcTemplate.execute(sql);
                 log.info("mysql表删除成功 {}", tableName);
@@ -442,13 +451,15 @@ public class FileServiceImpl implements FilesService {
 
 
     private Long getTotalColumns(String tableName) {
-        String sql = "describe " + tableName;
+        validateTableName(tableName);
+        String sql = "describe `" + tableName + "`";
         List<Map<String, Object>> columns = jdbcTemplate.queryForList(sql);
         return (long) (columns.size() - 1);
     }
 
     private Long getTotalRecords(String tableName) {
-        String sql = "select count(1) from " + tableName;
+        validateTableName(tableName);
+        String sql = "select count(1) from `" + tableName + "`";
         return jdbcTemplate.queryForObject(sql, Long.class);
     }
 

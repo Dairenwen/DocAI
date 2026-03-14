@@ -17,4 +17,9 @@ public interface LlmService {
     Map<String, String> getCurrentProviderName();
 
     String generateText(String prompt);
+
+    // 使用指定提供商和模型生成文本
+    default String generateText(String prompt, String provider, String model) {
+        return generateText(prompt);
+    }
 }

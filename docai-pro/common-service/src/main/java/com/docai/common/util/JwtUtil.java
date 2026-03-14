@@ -33,7 +33,7 @@ public class JwtUtil {
     /**
      * H256秘钥
      */
-    @Value("changeit-change-it-change-it-change-it-change-it")
+    @Value("${security.jwt.secret:changeit-change-it-change-it-change-it-change-it}")
     private String secret;
 
     /**
@@ -54,7 +54,7 @@ public class JwtUtil {
     public String createToken(Long userId, String username) {
         Date now = new Date();
 
-        Date expiry = new Date(now.getTime() + expireTime);
+        Date expiry = new Date(now.getTime() + expireTime * 1000);
 
         String token = Jwts.builder()
                 .setSubject(String.valueOf(userId))

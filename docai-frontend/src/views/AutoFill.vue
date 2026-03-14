@@ -175,29 +175,88 @@
           <div>
             <h3>{{ fillError ? '填充失败' : '填充完成' }}</h3>
           </div>
-          <el-button @click="resetAll">
-            <el-icon><RefreshRight /></el-icon> 继续填表
-          </el-button>
+          <div class="header-actions">
+            <el-button v-if="resultFiles.length > 0 && !fillError" type="primary" @click="downloadResult">
+              <el-icon><Download /></el-icon> 下载结果
+            </el-button>
+            <el-button @click="resetAll">
+              <el-icon><RefreshRight /></el-icon> 继续填表
+            </el-button>
+          </div>
         </div>
         <div class="result-area">
           <div class="result-success" v-if="fillResult && !fillError">
-            <div class="result-icon"><el-icon :size="64" color="#10B981"><SuccessFilled /></el-icon></div>
-            <h4>智能填表已完成！</h4>
-            <p>耗时: {{ fillTimeDisplay }}，已使用 {{ effectiveSourceCount }} 个文档数据源</p>
-            <div class="result-file-list" v-if="resultFiles.length > 0">
-              <div class="result-file-item" v-for="(f, i) in resultFiles" :key="i">
-                <span class="rf-icon"><el-icon :size="24" :color="f.name.endsWith('.xlsx') ? '#10B981' : '#3B82F6'"><Document /></el-icon></span>
-                <span class="rf-name">{{ f.name }}</span>
-                <el-button size="small" type="primary" @click="downloadSingleResult(f)">
-                  <el-icon><Download /></el-icon> 下载
-                </el-button>
+            <div class="result-summary">
+              <div class="summary-item">
+                <el-icon :size="32" color="#10B981"><SuccessFilled /></el-icon>
+                <div>
+                  <p class="summary-label">智能填表已完成</p>
+                  <p class="summary-value">耗时 {{ fillTimeDisplay }}，数据源 {{ effectiveSourceCount }} 个文档</p>
+                </div>
+              </div>
+              <div class="result-file-chips" v-if="resultFiles.length > 0">
+                <div class="result-file-chip" v-for="(f, i) in resultFiles" :key="i" @click="downloadSingleResult(f)">
+                  <el-icon :size="16" :color="f.name.endsWith('.xlsx') ? '#10B981' : '#3B82F6'"><Document /></el-icon>
+                  <span>{{ f.name }}</span>
+                  <el-icon :size="14"><Download /></el-icon>
+                </div>
               </div>
             </div>
-            <div class="result-actions" v-else>
-              <el-button type="primary" size="large" @click="downloadResult">
-                <el-icon><Download /></el-icon> 下载填充结果
-              </el-button>
-            </div>
+
+            <!-- Tab: 填充明细 / 分析结果 -->
+            <el-tabs v-model="resultTab" class="result-tabs" v-if="decisionList.length > 0">
+              <el-tab-pane label="填充明细" name="detail">
+                <el-table :data="decisionList" stripe max-height="420" style="width:100%">
+                  <el-table-column label="字段" prop="slotLabel" min-width="140" />
+                  <el-table-column label="填入值" prop="finalValue" min-width="200">
+                    <template #default="{ row }">
+                      <span v-if="row.finalValue">{{ row.finalValue }}</span>
+                      <el-tag v-else size="small" type="info">未填写</el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="置信度" width="120" align="center">
+                    <template #default="{ row }">
+                      <el-progress
+                        :percentage="Math.round((row.finalConfidence || 0) * 100)"
+                        :color="row.finalConfidence >= 0.85 ? '#10B981' : row.finalConfidence >= 0.7 ? '#F59E0B' : '#EF4444'"
+                        :stroke-width="6"
+                        :show-text="true"
+                        :format="() => ((row.finalConfidence || 0) * 100).toFixed(0) + '%'"
+                      />
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="决策方式" width="130" align="center">
+                    <template #default="{ row }">
+                      <el-tag size="small" :type="row.decisionMode === 'rule_only' ? 'success' : row.decisionMode === 'rule_plus_llm' ? 'warning' : 'info'" effect="plain">
+                        {{ decisionModeLabel(row.decisionMode) }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="原因" prop="reason" min-width="200" show-overflow-tooltip />
+                </el-table>
+              </el-tab-pane>
+
+              <el-tab-pane label="分析结果" name="analysis">
+                <div class="analysis-charts">
+                  <div class="chart-row">
+                    <div class="chart-card">
+                      <h4>置信度分布</h4>
+                      <div ref="confidenceChartRef" class="chart-container"></div>
+                    </div>
+                    <div class="chart-card">
+                      <h4>决策方式分布</h4>
+                      <div ref="modeChartRef" class="chart-container"></div>
+                    </div>
+                  </div>
+                  <div class="chart-row">
+                    <div class="chart-card wide">
+                      <h4>各字段置信度</h4>
+                      <div ref="barChartRef" class="chart-container-wide"></div>
+                    </div>
+                  </div>
+                </div>
+              </el-tab-pane>
+            </el-tabs>
           </div>
           <div class="result-error" v-if="fillError">
             <div class="result-icon"><el-icon :size="64" color="#EF4444"><CircleCloseFilled /></el-icon></div>
@@ -276,7 +335,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick, watch, onBeforeUnmount } from 'vue'
 import { useDocumentStore } from '../store/documentStore'
 import { storeToRefs } from 'pinia'
 import {
@@ -284,6 +343,7 @@ import {
   parseTemplateSlots,
   fillTemplate,
   downloadTemplateResult,
+  getTemplateDecisions,
   downloadBlob
 } from '../api'
 import { ElMessage } from 'element-plus'
@@ -291,6 +351,12 @@ import {
   UploadFilled, MagicStick, Download, InfoFilled, WarningFilled, RefreshRight,
   Document, SuccessFilled, CircleCloseFilled
 } from '@element-plus/icons-vue'
+import * as echarts from 'echarts/core'
+import { PieChart, BarChart } from 'echarts/charts'
+import { TitleComponent, TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+
+echarts.use([PieChart, BarChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
 
 const docStore = useDocumentStore()
 
@@ -318,6 +384,15 @@ const fillResult = ref(null)
 const fillError = ref('')
 const fillTimeMs = ref(0)
 const resultFiles = ref([])
+
+// Result analysis
+const resultTab = ref('detail')
+const decisionList = ref([])
+const templateIdsForDecisions = ref([])
+const confidenceChartRef = ref(null)
+const modeChartRef = ref(null)
+const barChartRef = ref(null)
+let chartInstances = []
 
 const fillTimeDisplay = computed(() => {
   if (fillTimeMs.value < 1000) return fillTimeMs.value + 'ms'
@@ -511,6 +586,7 @@ const startFill = async () => {
   try {
     const docIds = selectedSourceDocIds.value.length > 0 ? [...selectedSourceDocIds.value] : []
     const finishedFiles = []
+    const collectedTemplateIds = []
     const startedAt = Date.now()
 
     for (let i = 0; i < templateFiles.value.length; i++) {
@@ -523,6 +599,7 @@ const startFill = async () => {
 
       await parseTemplateSlots(templateId)
       await fillTemplate(templateId, docIds)
+      collectedTemplateIds.push(templateId)
       const fileRes = await downloadTemplateResult(templateId)
 
       finishedFiles.push({
@@ -541,6 +618,10 @@ const startFill = async () => {
     fillTimeMs.value = Date.now() - startedAt
     resultFiles.value = finishedFiles
     fillResult.value = finishedFiles[0]?.blob || null
+    templateIdsForDecisions.value = collectedTemplateIds
+
+    // Load fill decisions for result analysis
+    await loadDecisions(collectedTemplateIds)
 
     setTimeout(() => { currentStep.value = 3 }, 800)
 
@@ -573,6 +654,118 @@ const downloadSingleResult = (f) => {
   ElMessage.success('下载成功')
 }
 
+const decisionModeLabel = (mode) => {
+  const map = { rule_only: '规则决策', rule_plus_llm: '规则+AI', fallback_blank: '拒填' }
+  return map[mode] || mode || '未知'
+}
+
+const loadDecisions = async (templateIds) => {
+  const allDecisions = []
+  for (const tid of templateIds) {
+    try {
+      const res = await getTemplateDecisions(tid)
+      if (Array.isArray(res.data)) {
+        allDecisions.push(...res.data)
+      }
+    } catch (e) {
+      console.warn('获取填充决策失败:', e)
+    }
+  }
+  decisionList.value = allDecisions
+}
+
+const renderCharts = async () => {
+  await nextTick()
+  disposeCharts()
+  if (decisionList.value.length === 0) return
+
+  // Confidence distribution pie chart
+  if (confidenceChartRef.value) {
+    const high = decisionList.value.filter(d => (d.finalConfidence || 0) >= 0.85).length
+    const medium = decisionList.value.filter(d => (d.finalConfidence || 0) >= 0.7 && (d.finalConfidence || 0) < 0.85).length
+    const low = decisionList.value.filter(d => (d.finalConfidence || 0) > 0 && (d.finalConfidence || 0) < 0.7).length
+    const blank = decisionList.value.filter(d => !d.finalConfidence || d.finalConfidence === 0).length
+
+    const chart = echarts.init(confidenceChartRef.value)
+    chartInstances.push(chart)
+    chart.setOption({
+      tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+      legend: { bottom: 0, textStyle: { fontSize: 12 } },
+      series: [{
+        type: 'pie',
+        radius: ['40%', '65%'],
+        label: { show: false },
+        data: [
+          { value: high, name: '高置信(≥85%)', itemStyle: { color: '#10B981' } },
+          { value: medium, name: '中置信(70-85%)', itemStyle: { color: '#F59E0B' } },
+          { value: low, name: '低置信(<70%)', itemStyle: { color: '#EF4444' } },
+          { value: blank, name: '未填写', itemStyle: { color: '#D1D5DB' } }
+        ].filter(d => d.value > 0)
+      }]
+    })
+  }
+
+  // Decision mode pie chart
+  if (modeChartRef.value) {
+    const modeMap = {}
+    decisionList.value.forEach(d => {
+      const mode = d.decisionMode || 'unknown'
+      modeMap[mode] = (modeMap[mode] || 0) + 1
+    })
+    const chart = echarts.init(modeChartRef.value)
+    chartInstances.push(chart)
+    chart.setOption({
+      tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+      legend: { bottom: 0, textStyle: { fontSize: 12 } },
+      series: [{
+        type: 'pie',
+        radius: ['40%', '65%'],
+        label: { show: false },
+        data: Object.entries(modeMap).map(([mode, count]) => ({
+          value: count,
+          name: decisionModeLabel(mode),
+          itemStyle: { color: mode === 'rule_only' ? '#10B981' : mode === 'rule_plus_llm' ? '#F59E0B' : '#D1D5DB' }
+        }))
+      }]
+    })
+  }
+
+  // Bar chart: per-field confidence
+  if (barChartRef.value) {
+    const labels = decisionList.value.map(d => d.slotLabel || d.slotId || '?')
+    const values = decisionList.value.map(d => Math.round((d.finalConfidence || 0) * 100))
+    const colors = values.map(v => v >= 85 ? '#10B981' : v >= 70 ? '#F59E0B' : '#EF4444')
+
+    const chart = echarts.init(barChartRef.value)
+    chartInstances.push(chart)
+    chart.setOption({
+      tooltip: { trigger: 'axis', formatter: '{b}: {c}%' },
+      grid: { left: 100, right: 30, top: 10, bottom: 30 },
+      xAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%' } },
+      yAxis: { type: 'category', data: labels, axisLabel: { width: 80, overflow: 'truncate' } },
+      series: [{
+        type: 'bar',
+        data: values.map((v, i) => ({ value: v, itemStyle: { color: colors[i] } })),
+        barWidth: 16
+      }]
+    })
+  }
+}
+
+const disposeCharts = () => {
+  chartInstances.forEach(c => { try { c.dispose() } catch (_) {} })
+  chartInstances = []
+}
+
+// Watch for tab switch to render charts
+watch(resultTab, async (tab) => {
+  if (tab === 'analysis' && decisionList.value.length > 0) {
+    await renderCharts()
+  }
+})
+
+onBeforeUnmount(disposeCharts)
+
 const resetAll = () => {
   currentStep.value = 0
   templateFiles.value = []
@@ -581,10 +774,13 @@ const resetAll = () => {
   fillProgress.value = 0
   fillPhase.value = 0
   resultFiles.value = []
+  resultTab.value = 'detail'
+  decisionList.value = []
+  templateIdsForDecisions.value = []
+  disposeCharts()
   sourceKeyword.value = ''
   sourceType.value = ''
   sourceDialogSelectedIds.value = []
-  // No need to call loadStats(), data is already in store or will be loaded on next visit
 }
 
 const formatDate = (dateString) => {
@@ -1024,13 +1220,116 @@ onMounted(loadStats)
 
 /* Result */
 .result-area {
-  padding: 48px 28px;
-  text-align: center;
+  padding: 20px 28px;
+  text-align: left;
+}
+
+.result-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: rgba(16, 185, 129, 0.06);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: var(--radius-md);
+  margin-bottom: 20px;
+}
+
+.summary-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.summary-label {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.summary-value {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 4px 0 0;
+}
+
+.result-file-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.result-file-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-light);
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.result-file-chip:hover {
+  border-color: var(--primary);
+  background: rgba(79, 70, 229, 0.05);
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.result-tabs {
+  margin-top: 8px;
+}
+
+.analysis-charts {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 12px 0;
+}
+
+.chart-row {
+  display: flex;
+  gap: 16px;
+}
+
+.chart-card {
+  flex: 1;
+  padding: 16px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+}
+
+.chart-card.wide {
+  flex: 1;
+}
+
+.chart-card h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.chart-container {
+  height: 260px;
+}
+
+.chart-container-wide {
+  height: 300px;
 }
 
 .result-icon {
   font-size: 64px;
   margin-bottom: 16px;
+  text-align: center;
 }
 
 .result-success h4,
@@ -1040,50 +1339,15 @@ onMounted(loadStats)
   margin-bottom: 8px;
 }
 
-.result-success p,
+.result-error {
+  text-align: center;
+  padding: 40px 0;
+}
+
 .result-error p {
   font-size: 14px;
   color: var(--text-secondary);
   margin-bottom: 24px;
-}
-
-.result-actions {
-  display: flex;
-  gap: 12px;
-  justify-content: center;
-}
-
-.result-file-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-width: 480px;
-  margin: 0 auto 24px;
-  text-align: left;
-}
-
-.result-file-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  background: var(--bg-base);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
-}
-
-.rf-icon {
-  font-size: 24px;
-}
-
-.rf-name {
-  flex: 1;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .manage-docs-btn {

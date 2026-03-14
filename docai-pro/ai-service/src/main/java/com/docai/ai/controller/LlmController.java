@@ -1,7 +1,6 @@
 package com.docai.ai.controller;
 
 import com.docai.ai.dto.request.ProviderSwitchRequest;
-import com.docai.ai.service.AiService;
 import com.docai.ai.service.LlmService;
 import com.docai.common.util.JwtUtil;
 import com.docai.common.util.Result;

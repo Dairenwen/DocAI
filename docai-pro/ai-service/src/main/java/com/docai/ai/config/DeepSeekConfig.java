@@ -10,36 +10,28 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class DeepSeekConfig {
 
-    // api密钥
-    @Value("${spring.ai.deepseek.api-key}")
+    @Value("${spring.ai.deepseek.api-key:}")
     private String apiKey;
 
-    // 访问基地址
-    @Value("${spring.ai.deepseek.base-url}")
+    @Value("${spring.ai.deepseek.base-url:https://api.deepseek.com}")
     private String baseUrl;
 
-    // 模型的名称
-    @Value("${spring.ai.deepseek.chat.options.model}")
+    @Value("${spring.ai.deepseek.chat.options.model:deepseek-chat}")
     private String model;
 
-    // 模型的名称
-    @Value("${spring.ai.deepseek.chat.options.temperature}")
+    @Value("${spring.ai.deepseek.chat.options.temperature:0.7}")
     private Double temperature;
 
-    // 最大token数
-    @Value("${spring.ai.deepseek.chat.options.max-tokens}")
+    @Value("${spring.ai.deepseek.chat.options.max-tokens:2048}")
     private Integer maxTokens;
 
-    // 最大连接超时时间
-    @Value("${spring.ai.deepseek.http.connect-timeout}")
+    @Value("${spring.ai.deepseek.http.connect-timeout:60000}")
     private Integer connectTimeout;
 
-    // 最大读取超时时间
-    @Value("${spring.ai.deepseek.http.read-timeout}")
+    @Value("${spring.ai.deepseek.http.read-timeout:60000}")
     private Integer readTimeout;
 
-    // 最大写入超时时间
-    @Value("${spring.ai.deepseek.http.write-timeout}")
+    @Value("${spring.ai.deepseek.http.write-timeout:60000}")
     private Integer writeTimeout;
 
 

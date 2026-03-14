@@ -32,12 +32,20 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Service
 @Slf4j
 public class ExtractionServiceImpl implements ExtractionService {
+
+    // 限制同时进行的LLM提取并发数为2，避免API限流
+    private static final Semaphore LLM_SEMAPHORE = new Semaphore(2);
+    // 异步提取线程池
+    private static final ExecutorService EXTRACT_EXECUTOR = Executors.newFixedThreadPool(3);
 
     @Autowired
     private SourceDocumentMapper sourceDocumentMapper;
@@ -108,29 +116,55 @@ public class ExtractionServiceImpl implements ExtractionService {
 
         sourceDocumentMapper.insert(doc);
 
-        // 同步抽取（可改异步）
-        try {
-            String textContent = extractTextContent(savedPath.toString(), fileType);
-            List<ExtractedFieldEntity> fields = callLlmExtract(doc.getId(), textContent, originalFilename);
+        // 异步执行LLM提取，立即返回文档记录
+        final long docId = doc.getId();
+        final String filePath = savedPath.toString();
+        EXTRACT_EXECUTOR.submit(() -> {
+            try {
+                LLM_SEMAPHORE.acquire();
+                try {
+                    doExtraction(docId, filePath, fileType, originalFilename);
+                } finally {
+                    LLM_SEMAPHORE.release();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.error("文档提取任务被中断: docId={}", docId);
+                updateDocStatus(docId, "failed", "提取任务被中断");
+            }
+        });
 
-            // 标准化字段并存储
+        return doc;
+    }
+
+    /**
+     * 实际执行LLM提取的方法（在线程池中运行）
+     */
+    private void doExtraction(long docId, String filePath, String fileType, String originalFilename) {
+        try {
+            String textContent = extractTextContent(filePath, fileType);
+            List<ExtractedFieldEntity> fields = callLlmExtract(docId, textContent, originalFilename);
+
             for (ExtractedFieldEntity field : fields) {
                 standardizeField(field);
                 extractedFieldMapper.insert(field);
                 updateAliasDict(field);
             }
 
-            doc.setUploadStatus("parsed");
-            doc.setDocSummary(fields.size() + "个字段已抽取");
-            sourceDocumentMapper.updateById(doc);
+            updateDocStatus(docId, "parsed", fields.size() + "个字段已抽取");
         } catch (Exception e) {
-            log.error("文档抽取失败: {}", e.getMessage(), e);
-            doc.setUploadStatus("failed");
-            doc.setDocSummary("抽取失败: " + e.getMessage());
+            log.error("文档抽取失败: docId={}, error={}", docId, e.getMessage(), e);
+            updateDocStatus(docId, "failed", "文档内容提取失败，请检查文件格式是否正确");
+        }
+    }
+
+    private void updateDocStatus(long docId, String status, String summary) {
+        SourceDocumentEntity doc = sourceDocumentMapper.selectById(docId);
+        if (doc != null) {
+            doc.setUploadStatus(status);
+            doc.setDocSummary(summary);
             sourceDocumentMapper.updateById(doc);
         }
-
-        return doc;
     }
 
     private String getOssKey(String fileUrl) {
@@ -152,6 +186,18 @@ public class ExtractionServiceImpl implements ExtractionService {
     }
 
     @Override
+    public List<ExtractedFieldEntity> getFieldsByDocId(Long docId, Long userId) {
+        // 先验证文档归属
+        SourceDocumentEntity doc = sourceDocumentMapper.selectById(docId);
+        if (doc == null || !doc.getUserId().equals(userId)) {
+            return Collections.emptyList();
+        }
+        return extractedFieldMapper.selectList(
+                new LambdaQueryWrapper<ExtractedFieldEntity>().eq(ExtractedFieldEntity::getDocId, docId)
+        );
+    }
+
+    // 保留无userId的旧签名供内部调用
     public List<ExtractedFieldEntity> getFieldsByDocId(Long docId) {
         return extractedFieldMapper.selectList(
                 new LambdaQueryWrapper<ExtractedFieldEntity>().eq(ExtractedFieldEntity::getDocId, docId)
@@ -167,8 +213,43 @@ public class ExtractionServiceImpl implements ExtractionService {
     }
 
     @Override
-    public SourceDocumentEntity getDocument(Long docId) {
-        return sourceDocumentMapper.selectById(docId);
+    public SourceDocumentEntity getDocument(Long docId, Long userId) {
+        SourceDocumentEntity doc = sourceDocumentMapper.selectById(docId);
+        if (doc == null || !doc.getUserId().equals(userId)) {
+            return null;
+        }
+        return doc;
+    }
+
+    @Override
+    public boolean deleteDocument(Long docId, Long userId) {
+        SourceDocumentEntity doc = sourceDocumentMapper.selectById(docId);
+        if (doc == null || !doc.getUserId().equals(userId)) {
+            throw new RuntimeException("文档不存在或无权限");
+        }
+        // 删除提取字段
+        extractedFieldMapper.delete(
+                new LambdaQueryWrapper<ExtractedFieldEntity>().eq(ExtractedFieldEntity::getDocId, docId)
+        );
+        // 删除文档记录
+        sourceDocumentMapper.deleteById(docId);
+        // 删除OSS文件
+        if (doc.getOssKey() != null && !doc.getOssKey().isEmpty()) {
+            try {
+                ossService.deleteFile(doc.getOssKey());
+            } catch (Exception e) {
+                log.warn("删除OSS文件失败: {}", e.getMessage());
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public boolean batchDeleteDocuments(List<Long> docIds, Long userId) {
+        for (Long docId : docIds) {
+            deleteDocument(docId, userId);
+        }
+        return true;
     }
 
     /**
@@ -285,7 +366,8 @@ public class ExtractionServiceImpl implements ExtractionService {
 
         String response;
         try {
-            response = llmService.generateText(prompt);
+            // 使用qwen-turbo进行提取，速度快且成本低，同时保证提取准确率
+            response = llmService.generateText(prompt, "dashscope", "qwen-turbo");
         } catch (Exception e) {
             log.error("LLM抽取调用失败: {}", e.getMessage());
             return ruleBasedExtract(docId, textContent);
@@ -528,7 +610,7 @@ public class ExtractionServiceImpl implements ExtractionService {
 
     private String normalizeDateValue(String value) {
         // 尝试将各种日期格式统一为YYYY-MM-DD
-        value = value.replaceAll("[年/]", "-").replaceAll("[月日]", "");
+        value = value.replaceAll("[年/]", "-").replaceAll("月", "-").replaceAll("日", "");
         return value.trim();
     }
 

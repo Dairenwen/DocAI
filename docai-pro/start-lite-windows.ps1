@@ -141,7 +141,8 @@ Assert-DockerEngineReady
 if (Test-MiddlewareAlreadyRunning) {
     Write-Host '[SKIP] Middleware containers already running, skip port pre-check.'
 } else {
-    Assert-PortFree -port 3306 -purpose 'mysql container'
+    $mysqlPreCheckPort = if ($env:MYSQL_HOST_PORT) { [int]$env:MYSQL_HOST_PORT } else { 3306 }
+    Assert-PortFree -port $mysqlPreCheckPort -purpose 'mysql container'
     Assert-PortFree -port 6379 -purpose 'redis container'
     Assert-PortFree -port 8848 -purpose 'nacos container'
     Assert-PortFree -port 8080 -purpose 'nginx container'
@@ -190,7 +191,18 @@ foreach ($svc in @('docai-mysql', 'docai-redis', 'docai-nacos', 'docai-web')) {
 }
 Pop-Location
 
-Wait-Port -port 3306 -name 'mysql' -timeoutSec 120
+# Detect actual MySQL host port (may differ from default 3306 if MYSQL_HOST_PORT was set or container was created with a different mapping)
+$mysqlPort = 3306
+$mysqlPortLines = docker port docai-mysql 3306/tcp 2>$null
+if ($mysqlPortLines) {
+    $firstLine = ($mysqlPortLines | Select-Object -First 1).ToString().Trim()
+    if ($firstLine -match ':(\d+)$') {
+        $mysqlPort = [int]$Matches[1]
+    }
+    Write-Host "[INFO] Detected MySQL host port: $mysqlPort"
+}
+
+Wait-Port -port $mysqlPort -name 'mysql' -timeoutSec 120
 Wait-Port -port 6379 -name 'redis' -timeoutSec 120
 Wait-Port -port 8848 -name 'nacos' -timeoutSec 180
 Wait-Port -port 8080 -name 'nginx' -timeoutSec 120
@@ -205,8 +217,13 @@ $commonArgs = @(
     '--spring.redis.port=6379'
 )
 
+$multipartArgs = @(
+    '--spring.servlet.multipart.max-file-size=200MB',
+    '--spring.servlet.multipart.max-request-size=200MB'
+)
+
 $dbArgs = @(
-    '--spring.datasource.url=jdbc:mysql://127.0.0.1:3306/docai?characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai',
+    "--spring.datasource.url=jdbc:mysql://127.0.0.1:${mysqlPort}/docai?characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai",
     '--spring.datasource.username=drw',
     '--spring.datasource.password=dairenwen1092',
     '--spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver'
@@ -243,7 +260,8 @@ $gatewayJvmArgs = @(
     '-Dserver.port=18080',
     '-Dspring.cloud.bootstrap.enabled=false',
     '-Dspring.cloud.nacos.config.enabled=false',
-    '-Dspring.cloud.nacos.discovery.enabled=false'
+    '-Dspring.cloud.nacos.discovery.enabled=false',
+    '-Dspring.codec.max-in-memory-size=200MB'
 )
 
 $dashscopeApiKey = Get-EnvValue 'DOC_DASHSCOPE_API_KEY' 'local-placeholder-key'
@@ -257,17 +275,17 @@ $aiArgs = @(
     "--spring.ai.alibaba.dashscope.api-key=$dashscopeApiKey",
     '--spring.ai.alibaba.dashscope.chat.options.model=qwen-plus',
     '--spring.ai.alibaba.dashscope.chat.options.temperature=0.7',
-    '--spring.ai.alibaba.dashscope.chat.options.max-tokens=2048',
+    '--spring.ai.alibaba.dashscope.chat.options.max-tokens=8192',
     '--spring.ai.alibaba.dashscope.http.connect-timeout=60000',
-    '--spring.ai.alibaba.dashscope.http.read-timeout=60000',
+    '--spring.ai.alibaba.dashscope.http.read-timeout=180000',
     '--spring.ai.alibaba.dashscope.http.write-timeout=60000',
     "--spring.ai.deepseek.api-key=$deepseekApiKey",
     '--spring.ai.deepseek.base-url=https://api.deepseek.com',
     '--spring.ai.deepseek.chat.options.model=deepseek-chat',
     '--spring.ai.deepseek.chat.options.temperature=0.7',
-    '--spring.ai.deepseek.chat.options.max-tokens=2048',
+    '--spring.ai.deepseek.chat.options.max-tokens=8192',
     '--spring.ai.deepseek.http.connect-timeout=60000',
-    '--spring.ai.deepseek.http.read-timeout=60000',
+    '--spring.ai.deepseek.http.read-timeout=180000',
     '--spring.ai.deepseek.http.write-timeout=60000'
 )
 
@@ -314,8 +332,8 @@ if ($ossEndpoint -and $ossBucket -and $ossAccessKeyId -and $ossAccessKeySecret) 
 }
 
 Start-JavaService -name 'user-service' -jarPath (Join-Path $root 'user-service\target\user-service-1.0.0.jar') -port 9001 -xmx '256m' -extraArgs (@('--server.port=9001') + $commonArgs + $dbArgs + $mailArgs + $ossArgs)
-Start-JavaService -name 'file-service' -jarPath (Join-Path $root 'file-service\target\file-service-1.0.0-exec.jar') -port 9003 -xmx '256m' -extraArgs (@('--server.port=9003') + $commonArgs + $dbArgs + $ossArgs)
-Start-JavaService -name 'ai-service' -jarPath (Join-Path $root 'ai-service\target\ai-service-1.0.0.jar') -port 9002 -xmx '384m' -extraArgs (@('--server.port=9002') + $commonArgs + $dbArgs + $aiArgs + $ossArgs)
+Start-JavaService -name 'file-service' -jarPath (Join-Path $root 'file-service\target\file-service-1.0.0-exec.jar') -port 9003 -xmx '256m' -extraArgs (@('--server.port=9003') + $commonArgs + $dbArgs + $multipartArgs + $ossArgs)
+Start-JavaService -name 'ai-service' -jarPath (Join-Path $root 'ai-service\target\ai-service-1.0.0.jar') -port 9002 -xmx '384m' -extraArgs (@('--server.port=9002') + $commonArgs + $dbArgs + $multipartArgs + $aiArgs + $mailArgs + $ossArgs)
 Start-JavaService -name 'gateway-service' -jarPath (Join-Path $root 'gateway-service\target\gateway-service-1.0.0.jar') -port 18080 -xmx '256m' -extraArgs $gatewayArgs -jvmArgs $gatewayJvmArgs
 
 Write-Host ''

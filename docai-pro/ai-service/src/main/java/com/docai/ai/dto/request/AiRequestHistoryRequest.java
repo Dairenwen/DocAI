@@ -11,9 +11,11 @@ import lombok.Data;
 public class AiRequestHistoryRequest {
 
     // 页码
+    @Builder.Default
     private Integer pageNum = 1;
 
     // 每页大小
+    @Builder.Default
     private Integer pageSize = 10;
 
     // 文件ID

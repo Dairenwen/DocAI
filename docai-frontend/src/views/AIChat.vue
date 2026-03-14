@@ -51,17 +51,26 @@
             <div class="cmd-btn" @click="sendCommand('提取文档中所有关键数据，包括数字、日期、人名、机构等实体信息，以结构化形式输出')">
               <el-icon :size="14"><Search /></el-icon><span>信息提取</span>
             </div>
-            <div class="cmd-btn" @click="sendCommand('请对文档内容进行润色和优化，使语言更规范流畅，格式更清晰')">
+            <div class="cmd-btn" @click="sendCommand('请对文档内容进行润色和优化，使语言更规范流畅，格式更清晰，输出完整修改后的文档内容')">
               <el-icon :size="14"><EditPen /></el-icon><span>润色优化</span>
             </div>
-            <div class="cmd-btn" @click="sendCommand('请调整文档的格式结构，优化标题层级、段落划分、列表格式等，使其更加规范')">
+            <div class="cmd-btn" @click="sendCommand('请调整文档的格式结构，优化标题层级、段落划分、列表格式等，输出完整修改后的文档内容')">
               <el-icon :size="14"><SetUp /></el-icon><span>格式调整</span>
             </div>
             <div class="cmd-btn" @click="sendCommand('请分析文档中的数据，给出趋势分析和关键发现')">
               <el-icon :size="14"><DataAnalysis /></el-icon><span>数据分析</span>
             </div>
+            <div class="cmd-btn" @click="sendCommand('请删除文档中不必要的冗余内容和重复段落，精简文档，输出完整修改后的文档内容')">
+              <el-icon :size="14"><Delete /></el-icon><span>删除冗余</span>
+            </div>
+            <div class="cmd-btn" @click="sendCommand('请为文档补充缺失的章节内容，完善文档结构，输出完整修改后的文档内容')">
+              <el-icon :size="14"><Plus /></el-icon><span>内容补充</span>
+            </div>
+            <div class="cmd-btn" @click="sendCommand('请将文档翻译为英文，保持原文格式不变，输出完整翻译后的内容')">
+              <el-icon :size="14"><Promotion /></el-icon><span>翻译文档</span>
+            </div>
             <div class="cmd-btn" @click="exportAIResult">
-              <el-icon :size="14"><Download /></el-icon><span>导出文档</span>
+              <el-icon :size="14"><Download /></el-icon><span>导出结果</span>
             </div>
           </div>
         </div>
@@ -225,13 +234,13 @@
                     <el-icon :size="14"><Document /></el-icon>
                   </button>
                 </el-tooltip>
-                <el-tooltip content="在线下载" v-if="msg._meta?.modifiedExcelUrl">
+                <el-tooltip content="下载文件" v-if="msg._meta?.modifiedExcelUrl">
                   <button class="action-btn" @click="downloadModifiedExcel(msg._meta.modifiedExcelUrl)">
                     <el-icon :size="14"><Download /></el-icon>
                   </button>
                 </el-tooltip>
-                <el-tooltip content="发送至邮箱" v-if="msg._meta?.modifiedExcelUrl">
-                  <button class="action-btn" @click="sendResultToEmail(msg._meta.modifiedExcelUrl)">
+                <el-tooltip content="发送至邮箱">
+                  <button class="action-btn" @click="msg._meta?.modifiedExcelUrl ? sendResultToEmail(msg._meta.modifiedExcelUrl) : sendContentToEmail(msg.content)">
                     <el-icon :size="14"><Message /></el-icon>
                   </button>
                 </el-tooltip>
@@ -317,17 +326,19 @@
           <span class="dpi-icon"><el-icon :size="20"><Document /></el-icon></span>
           <div class="dpi-info">
             <span class="dpi-name">{{ doc.fileName }}</span>
-            <span class="dpi-meta">{{ doc.fileExtension?.toUpperCase() || 'XLSX' }}</span>
+            <span class="dpi-meta">{{ doc.fileExtension?.toUpperCase() || 'DOC' }}</span>
           </div>
-          <el-tag size="small" type="success" effect="plain">可用于AI对话</el-tag>
+          <el-tag v-if="doc.uploadStatus === 'parsed'" size="small" type="success" effect="plain">可关联</el-tag>
+          <el-tag v-else-if="doc.uploadStatus === 'failed'" size="small" type="danger" effect="plain">提取失败</el-tag>
+          <el-tag v-else size="small" type="info" effect="plain">处理中</el-tag>
         </div>
       </div>
     </el-dialog>
 
-    <el-dialog v-model="showModelDialog" title="大模型切换" width="420px">
+    <el-dialog v-model="showModelDialog" title="大模型切换" width="520px">
       <el-form label-position="top">
-        <el-form-item label="当前模型提供商">
-          <el-select v-model="selectedProvider" placeholder="请选择模型提供商" style="width: 100%" :loading="modelLoading">
+        <el-form-item label="模型提供商">
+          <el-select v-model="selectedProvider" placeholder="请选择模型提供商" style="width: 100%" :loading="modelLoading" @change="onProviderChange">
             <el-option
               v-for="item in llmProviders"
               :key="item.name"
@@ -337,6 +348,19 @@
             />
           </el-select>
         </el-form-item>
+        <el-form-item label="模型选择" v-if="availableModels.length > 0">
+          <el-select v-model="selectedModel" placeholder="请选择模型" style="width: 100%">
+            <el-option
+              v-for="model in availableModels"
+              :key="model"
+              :label="model"
+              :value="model"
+            />
+          </el-select>
+        </el-form-item>
+        <div class="model-info" v-if="selectedProvider">
+          <el-tag effect="plain" size="small">当前：{{ currentProvider }}:{{ currentModel || '默认' }}</el-tag>
+        </div>
       </el-form>
       <template #footer>
         <el-button @click="showModelDialog = false">取消</el-button>
@@ -344,7 +368,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="previewVisible" title="内容预览" width="760px" top="5vh">
+    <el-dialog v-model="previewVisible" title="内容预览" width="80vw" top="3vh">
       <div class="preview-body" v-html="renderMarkdown(previewText)"></div>
     </el-dialog>
   </div>
@@ -353,7 +377,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { aiChat, getExcelFiles, downloadExcelFile, downloadBlob, getLlmProviders, getCurrentLlmProvider, switchLlmProvider, sendAiResultEmail } from '../api'
+import { aiChat, getSourceDocuments, getExcelFiles, downloadExcelFile, downloadSourceDocument, downloadBlob, getLlmProviders, getCurrentLlmProvider, switchLlmProvider, sendAiResultEmail, sendContentEmail } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Delete, Position, CopyDocument, Document, Download, Close, FolderOpened,
@@ -384,7 +408,7 @@ const parseDocId = (value) => {
   const n = Number(value)
   return Number.isFinite(n) && n > 0 ? n : null
 }
-const currentDocId = ref(parseDocId(route.query.fileId))
+const currentDocId = ref(parseDocId(route.query.docId || route.query.fileId))
 const showDocPicker = ref(false)
 const docSearchKey = ref('')
 const docList = ref([])
@@ -395,7 +419,9 @@ const showModelDialog = ref(false)
 const modelLoading = ref(false)
 const llmProviders = ref([])
 const selectedProvider = ref('dashscope')
+const selectedModel = ref('')
 const currentProvider = ref('dashscope')
+const currentModel = ref('')
 const previewVisible = ref(false)
 const previewText = ref('')
 const lastUserPrompt = ref('')
@@ -435,9 +461,19 @@ const filteredConversations = computed(() => {
 })
 
 const currentProviderLabel = computed(() => {
-  if (!currentProvider.value) return 'dashscope 在线'
-  return `${currentProvider.value} 在线`
+  const model = currentModel.value || '默认'
+  return `${currentProvider.value || 'dashscope'}:${model}`
 })
+
+const availableModels = computed(() => {
+  const provider = llmProviders.value.find(p => p.name === selectedProvider.value)
+  return provider?.models || []
+})
+
+const onProviderChange = () => {
+  const provider = llmProviders.value.find(p => p.name === selectedProvider.value)
+  selectedModel.value = provider?.defaultModel || ''
+}
 
 const createSession = (linkedDocId = null, linkedDocName = '') => {
   const now = new Date().toISOString()
@@ -534,9 +570,9 @@ const filteredDocList = computed(() => {
 
 const buildWelcomeMessage = (doc) => {
   if (doc) {
-    return `您好，我已加载文档"${doc.fileName}"。\n\n我可以帮您：\n- 总结表格核心数据\n- 查询与筛选记录\n- 统计分析与可视化建议\n- 数据修改建议\n\n您可以直接提问，或使用左侧快捷操作。`
+    return `您好，我已加载文档"${doc.fileName}"。\n\n我可以帮您：\n- 总结文档核心内容\n- 查询与筛选信息\n- 编辑、修改、增删文档内容\n- 润色优化、格式调整\n- 翻译文档\n- 下载修改结果或发送至邮箱\n\n您可以直接提问，或使用左侧快捷操作。`
   }
-  return '您好！我是 DocAI 智能助手。您可以直接进行日常 AI 对话；关联文档后，还可执行文档编辑、信息提取、统计分析与大纲生成。'
+  return '您好！我是 DocAI 智能助手。您可以直接进行日常 AI 对话；关联文档后，还可执行文档编辑、内容增删、润色翻译、信息提取、统计分析等操作，并可导出结果或发送至邮箱。'
 }
 
 const createNewConversation = async (linkedDocId = null, linkedDocName = '') => {
@@ -629,7 +665,7 @@ const loadSessions = async () => {
 
   conversations.value = parsedSessions
 
-  const routeDocId = parseDocId(route.query.fileId)
+  const routeDocId = parseDocId(route.query.docId || route.query.fileId)
   let targetSessionId = null
   if (routeDocId) {
     const matched = conversations.value.find(item => parseDocId(item.linkedDocId) === routeDocId)
@@ -675,24 +711,28 @@ watch(messages, () => {
   persistActiveMessages()
 }, { deep: true })
 
-watch(() => route.query.fileId, async (newDocId) => {
+watch(() => route.query.docId || route.query.fileId, async (newDocId) => {
   const parsed = parseDocId(newDocId)
   if (!parsed) return
   if (currentDocId.value === parsed) return
   await createNewConversation(parsed)
 })
 
-// Load document by ID
+// Load document by ID (from source documents)
 const loadDocument = async (id) => {
   if (!id || !Number.isFinite(id)) return
   try {
-    const res = await getExcelFiles({ pageNum: 1, pageSize: 200 })
-    const files = res.data?.records || []
-    currentDoc.value = files.find(f => Number(f.fileId) === Number(id)) || null
-    if (!currentDoc.value) {
+    const res = await getSourceDocuments()
+    const docs = res.data || []
+    const found = docs.find(d => Number(d.id) === Number(id))
+    if (!found) {
       throw new Error('文件不存在或无权限')
     }
+    currentDoc.value = { fileId: found.id, fileName: found.fileName, fileExtension: found.fileType, uploadStatus: found.uploadStatus }
     currentDocId.value = id
+    if (found.uploadStatus !== 'parsed') {
+      ElMessage.warning(`文档"${found.fileName}"提取未完成，AI对话功能可能受限`)
+    }
   } catch (e) {
     ElMessage.error('文档加载失败: ' + (e.message || '未知错误'))
     currentDoc.value = null
@@ -700,12 +740,18 @@ const loadDocument = async (id) => {
   }
 }
 
-// Load document list for picker
+// Load document list for picker (from source documents)
 const loadDocList = async () => {
   loadingDocList.value = true
   try {
-    const res = await getExcelFiles({ pageNum: 1, pageSize: 200 })
-    docList.value = res.data?.records || []
+    const res = await getSourceDocuments()
+    const docs = res.data || []
+    docList.value = docs.map(d => ({
+      fileId: d.id,
+      fileName: d.fileName,
+      fileExtension: d.fileType,
+      uploadStatus: d.uploadStatus
+    }))
   } catch (e) {
     console.error('加载文档列表失败', e)
   } finally {
@@ -720,11 +766,19 @@ const selectDoc = async (doc) => {
   if (activeConversationId.value) {
     updateConversationMeta(activeConversationId.value, { linkedDocId: doc.fileId, linkedDocName: doc.fileName })
   }
-  messages.value.push({
-    role: 'ai',
-    content: `已关联文档"${doc.fileName}"，进入历史对话时会自动恢复当前关联文档。`,
-    _isWelcome: true
-  })
+  if (doc.uploadStatus && doc.uploadStatus !== 'parsed') {
+    messages.value.push({
+      role: 'ai',
+      content: `已选择文档"${doc.fileName}"，但该文档提取未成功，关联功能可能受限。`,
+      _isWelcome: true
+    })
+  } else {
+    messages.value.push({
+      role: 'ai',
+      content: `已关联文档"${doc.fileName}"，进入历史对话时会自动恢复当前关联文档。`,
+      _isWelcome: true
+    })
+  }
   await scrollToBottom()
 }
 
@@ -743,9 +797,9 @@ const unlinkDoc = () => {
 
 const downloadDoc = () => {
   if (!currentDocId.value) return
-  downloadExcelFile(currentDocId.value)
+  downloadSourceDocument(currentDocId.value)
     .then((res) => {
-      const name = currentDoc.value?.fileName || `file_${currentDocId.value}.xlsx`
+      const name = currentDoc.value?.fileName || `file_${currentDocId.value}`
       downloadBlob(new Blob([res.data]), name)
       ElMessage.success('下载成功')
     })
@@ -779,7 +833,9 @@ const loadModelProviders = async () => {
     ])
     llmProviders.value = providersRes.data || []
     currentProvider.value = currentRes.data?.currentProvider || 'dashscope'
+    currentModel.value = currentRes.data?.currentModel || ''
     selectedProvider.value = currentProvider.value
+    selectedModel.value = currentModel.value || (llmProviders.value.find(p => p.name === currentProvider.value)?.defaultModel || '')
   } catch (e) {
     ElMessage.error('加载模型列表失败')
   } finally {
@@ -794,10 +850,15 @@ const handleSwitchModel = async () => {
   }
   modelLoading.value = true
   try {
-    const res = await switchLlmProvider(selectedProvider.value)
+    // 发送 "provider:model" 格式
+    const switchValue = selectedModel.value
+      ? `${selectedProvider.value}:${selectedModel.value}`
+      : selectedProvider.value
+    const res = await switchLlmProvider(switchValue)
     currentProvider.value = res.data?.currentProvider || selectedProvider.value
+    currentModel.value = res.data?.currentModel || selectedModel.value
     showModelDialog.value = false
-    ElMessage.success(`已切换到 ${currentProvider.value}`)
+    ElMessage.success(`已切换到 ${currentProvider.value}:${currentModel.value}`)
   } finally {
     modelLoading.value = false
   }
@@ -998,9 +1059,11 @@ const exportAIResult = async () => {
     ElMessage.warning('暂无AI生成内容可导出')
     return
   }
-  const baseName = currentDoc.value ? currentDoc.value.fileName + '_AI结果' : 'AI生成内容'
+  const ext = currentDoc.value?.fileExtension?.toLowerCase() || 'txt'
+  const baseName = currentDoc.value ? currentDoc.value.fileName.replace(/\.\w+$/, '') + '_AI结果' : 'AI生成内容'
+  const exportExt = (ext === 'md') ? '.md' : '.txt'
   try {
-    downloadBlob(new Blob([lastAIContent.value], { type: 'text/plain;charset=utf-8' }), `${baseName}.txt`)
+    downloadBlob(new Blob([lastAIContent.value], { type: 'text/plain;charset=utf-8' }), `${baseName}${exportExt}`)
     ElMessage.success('已导出文档')
   } catch (e) {
     ElMessage.error('导出失败: ' + (e.message || '未知错误'))
@@ -1008,12 +1071,39 @@ const exportAIResult = async () => {
 }
 
 const exportContentToWord = async (content) => {
-  const baseName = currentDoc.value ? currentDoc.value.fileName + '_AI导出' : 'AI_内容导出'
+  const ext = currentDoc.value?.fileExtension?.toLowerCase() || 'txt'
+  const baseName = currentDoc.value ? currentDoc.value.fileName.replace(/\.\w+$/, '') + '_AI导出' : 'AI_内容导出'
+  const exportExt = (ext === 'md') ? '.md' : '.txt'
   try {
-    downloadBlob(new Blob([content], { type: 'text/plain;charset=utf-8' }), `${baseName}.txt`)
+    downloadBlob(new Blob([content], { type: 'text/plain;charset=utf-8' }), `${baseName}${exportExt}`)
     ElMessage.success('已导出文档')
   } catch (e) {
     ElMessage.error('导出失败')
+  }
+}
+
+const sendContentToEmail = async (content) => {
+  if (!content) {
+    ElMessage.warning('暂无可发送的内容')
+    return
+  }
+  try {
+    const { value } = await ElMessageBox.prompt('请输入接收邮箱', '发送至邮箱', {
+      inputPlaceholder: 'name@example.com',
+      inputPattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+      inputErrorMessage: '请输入有效邮箱地址',
+      confirmButtonText: '发送',
+      cancelButtonText: '取消'
+    })
+    const subject = currentDoc.value
+      ? `DocAI - ${currentDoc.value.fileName} AI处理结果`
+      : 'DocAI - AI生成内容'
+    await sendContentEmail({ email: value.trim(), content, subject })
+    ElMessage.success('邮件发送成功')
+  } catch (e) {
+    if (e !== 'cancel') {
+      ElMessage.error('邮件发送失败: ' + (e?.response?.data?.message || e?.message || '未知错误'))
+    }
   }
 }
 
@@ -1097,7 +1187,7 @@ const scrollToBottom = async () => {
 .no-doc-tip { text-align: center; padding: 16px 0; }
 .select-doc-btn { background: rgba(79, 70, 229, 0.1) !important; border-color: var(--primary) !important; color: var(--primary) !important; font-weight: 500; }
 .select-doc-btn:hover { background: rgba(79, 70, 229, 0.2) !important; }
-.doc-commands { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.doc-commands { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
 .cmd-btn { display: flex; align-items: center; gap: 6px; padding: 10px 10px; font-size: 12px; color: var(--text-secondary); background: var(--bg-base); border: 1px solid var(--border-light); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; }
 .cmd-btn:hover { background: rgba(79, 70, 229, 0.06); border-color: var(--primary); color: var(--primary); }
 .quick-questions { display: flex; flex-direction: column; gap: 8px; }
@@ -1140,10 +1230,10 @@ const scrollToBottom = async () => {
 .bubble-text :deep(blockquote) { border-left: 3px solid var(--primary); padding: 4px 12px; margin: 8px 0; color: var(--text-secondary); background: rgba(79, 70, 229, 0.03); border-radius: 0 4px 4px 0; }
 .bubble-text :deep(p) { margin: 4px 0; }
 .bubble-text :deep(a) { color: var(--primary); text-decoration: underline; }
-.bubble-actions { display: flex; gap: 4px; margin-top: 8px; opacity: 0; transition: opacity 0.2s; }
+.bubble-actions { display: flex; gap: 4px; margin-top: 6px; padding: 4px 0; opacity: 0; transition: opacity 0.25s ease; }
 .message-bubble:hover .bubble-actions { opacity: 1; }
-.action-btn { background: none; border: 1px solid var(--border-light); border-radius: var(--radius-sm); padding: 4px 8px; cursor: pointer; color: var(--text-muted); transition: all 0.2s; }
-.action-btn:hover { background: var(--bg-base); color: var(--primary); border-color: var(--primary); }
+.action-btn { background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); padding: 4px 8px; cursor: pointer; color: var(--text-muted); transition: all 0.2s; font-size: 12px; }
+.action-btn:hover { background: rgba(79, 70, 229, 0.08); color: var(--primary); border-color: rgba(79, 70, 229, 0.2); }
 .action-btn.save-btn { color: var(--primary); border-color: rgba(79, 70, 229, 0.3); }
 .action-btn.save-btn:hover { background: rgba(79, 70, 229, 0.1); color: var(--primary); border-color: var(--primary); }
 .loading-bubble { min-width: 60px; }
@@ -1164,7 +1254,7 @@ const scrollToBottom = async () => {
 .char-count { font-size: 11px; color: var(--text-muted); }
 .send-btn { width: 36px; height: 36px; }
 .input-footer { text-align: center; padding: 8px 0 0 0; font-size: 11px; color: var(--text-muted); }
-.preview-body { max-height: 62vh; overflow-y: auto; line-height: 1.7; color: var(--text-primary); }
+.preview-body { max-height: 80vh; overflow-y: auto; line-height: 1.7; color: var(--text-primary); }
 .preview-body :deep(pre) { background: #1e1e2e; color: #cdd6f4; padding: 12px; border-radius: 8px; overflow-x: auto; }
 .doc-picker-search { margin-bottom: 16px; }
 .doc-picker-list { max-height: 400px; overflow-y: auto; }
@@ -1197,6 +1287,7 @@ const scrollToBottom = async () => {
 .convo-action-btn.pinned { color: #f59e0b; border-color: rgba(245, 158, 11, 0.6); background: rgba(245, 158, 11, 0.08); }
 .convo-action-btn.pinned:hover { color: #d97706; border-color: #d97706; }
 .convo-action-btn.delete:hover { color: #ef4444; border-color: #ef4444; }
+.model-info { margin-top: 8px; }
 
 @media (max-width: 1024px) {
   .conversation-list { max-height: 220px; }

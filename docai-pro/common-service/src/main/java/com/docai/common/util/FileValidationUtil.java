@@ -64,11 +64,11 @@ public class FileValidationUtil {
     }
 
     /**
-     * 判断文件大小
+     * 判断文件大小是否在允许范围内
      * @param file 文件
-     * @return 是否超过50MB
+     * @return 文件大小不超过200MB时返回true
      */
     public static boolean ifOutOfLarge(MultipartFile file) {
-        return file.getSize() <= 50 * 1024 * 1024;
+        return file.getSize() <= 200 * 1024 * 1024;
     }
 }

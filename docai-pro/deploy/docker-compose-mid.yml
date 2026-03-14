@@ -1,6 +1,42 @@
 version: '3.8'
 #启动命令 docker compose -p docai -f docker-compose-mid.yml up -d
 services:
+  docai-mysql:
+    container_name: docai-mysql
+    image: mysql:8.4.2
+    ports:
+      - "3306:3306"
+    volumes:
+      - ../data/docaidata/mysql/data:/var/lib/mysql
+      - ./mysql/init/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./mysql/sql:/opt/sql
+    command:
+      - mysqld
+      - --innodb-buffer-pool-size=80M
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+8:00
+      - --lower-case-table-names=1
+      - --explicit_defaults_for_timestamp=true
+      - --server-id=1
+      - --log-bin=mysql-bin
+      - --binlog-ignore-db=mysql
+      - --binlog-cache-size=256M
+      - --binlog-format=ROW
+      - --max_connections=2000
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_ROOT_PASSWORD: Dairenwen1092
+    restart: always
+    networks:
+      - docai_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pDairenwen1092"]
+      start_period: 30s
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   docai-redis:
     container_name: docai-redis
     image: redis:7.0.15
@@ -18,6 +54,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+
   docai-nacos:
     container_name: docai-nacos
     image: nacos/nacos-server:v2.2.2
@@ -27,7 +64,7 @@ services:
       - JVM_XMX=512m
       - JVM_XMN=256m
       - SPRING_DATASOURCE_PLATFORM=mysql
-      - MYSQL_SERVICE_HOST=host.docker.internal
+      - MYSQL_SERVICE_HOST=docai-mysql
       - MYSQL_SERVICE_PORT=3306
       - MYSQL_SERVICE_DB_NAME=docai_nacos
       - MYSQL_DATABASE_NUM=1
@@ -42,29 +79,33 @@ services:
       - "8848:8848"
       - "9848:9848"
       - "9849:9849"
+    depends_on:
+      docai-mysql:
+        condition: service_healthy
     restart: always
     networks:
       - docai_network
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8848/nacos" ]
-      start_period: 30s
+      test: [ "CMD", "curl", "-f", "http://localhost:8848/nacos/actuator/health" ]
+      start_period: 90s
       interval: 10s
       timeout: 10s
-      retries: 10
+      retries: 20
+
   docai-web:
     image: nginx:1.24.0
     container_name: docai-web
-    restart: always
-    network_mode: host
+    ports:
+      - "8080:8080"
     volumes:
       - ./nginx/conf/nginx.conf:/etc/nginx/nginx.conf
       - ./nginx/web/dist:/data/docaidata/web/dist
-    ulimits:
-      nproc: 65535
-      nofile:
-        soft: 20000
-        hard: 40000
+    depends_on:
+      docai-nacos:
+        condition: service_started
+    restart: always
+    networks:
+      - docai_network
+
 networks:
   docai_network:

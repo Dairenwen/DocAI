@@ -146,11 +146,11 @@
         <el-table-column label="提取状态" width="110" align="center">
           <template #default="{ row }">
             <el-tag size="small" :type="row.uploadStatus === 'parsed' ? 'success' : row.uploadStatus === 'failed' ? 'danger' : 'info'" effect="plain" round>
-              {{ row.uploadStatus || 'unknown' }}
+              {{ row.uploadStatus === 'parsed' ? '已提取' : row.uploadStatus === 'failed' ? '提取失败' : row.uploadStatus === 'parsing' ? '提取中' : '待处理' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="240" align="center" fixed="right">
+        <el-table-column label="操作" width="280" align="center" fixed="right">
           <template #default="{ row }">
             <div class="action-buttons">
               <el-tooltip content="文件预览" placement="top">
@@ -159,13 +159,18 @@
                 </el-button>
               </el-tooltip>
               <el-tooltip content="AI 对话" placement="top">
-                <el-button size="small" type="success" plain round @click="goChat(row)">
+                <el-button size="small" type="success" plain round @click="goChat(row)" :disabled="row.uploadStatus !== 'parsed'">
                   <el-icon><ChatLineRound /></el-icon>
                 </el-button>
               </el-tooltip>
               <el-tooltip content="下载" placement="top">
                 <el-button size="small" type="warning" plain round @click="downloadDoc(row)">
                   <el-icon><Download /></el-icon>
+                </el-button>
+              </el-tooltip>
+              <el-tooltip content="删除" placement="top">
+                <el-button size="small" type="danger" plain round @click="deleteDoc(row)">
+                  <el-icon><Delete /></el-icon>
                 </el-button>
               </el-tooltip>
             </div>
@@ -197,13 +202,13 @@
           :auto-upload="false"
           :on-change="handleFileChange"
           :on-remove="handleFileRemove"
-          accept=".docx,.xlsx,.txt,.md,.pdf,.doc,.xls,.pptx,.ppt,.csv,.html"
+          accept=".docx,.xlsx,.txt,.md"
           :file-list="uploadFileList"
         >
           <el-icon :size="48" class="el-icon--upload"><UploadFilled /></el-icon>
           <div class="el-upload__text">将文件拖到此处，或 <em>点击选择</em></div>
           <template #tip>
-            <div class="el-upload__tip">支持 .docx / .xlsx / .txt / .md / .pdf / .doc / .pptx / .csv 等格式，单个文件不超过100MB</div>
+            <div class="el-upload__tip">支持 .docx / .xlsx / .txt / .md 四种格式，单个文件不超过200MB</div>
           </template>
         </el-upload>
       </div>
@@ -218,14 +223,13 @@
       </template>
     </el-dialog>
 
-    <!-- 查看提取内容弹窗 -->
-    <el-dialog v-model="showContentDialog" title="文档内容预览" width="750px" top="5vh">
-      <div class="content-result">
-        <div class="content-section" v-if="viewDocTitle">
-          <h4>{{ viewDocTitle }}</h4>
-        </div>
+    <!-- 文件原文预览弹窗 -->
+    <el-dialog v-model="showContentDialog" :title="'文件预览 - ' + viewDocTitle" width="85vw" top="3vh">
+      <div class="content-result" v-loading="previewLoading">
         <div class="content-body">
-          <pre class="content-text">{{ viewDocContent }}</pre>
+          <div v-if="previewType === 'html'" class="content-html" v-html="previewHtml"></div>
+          <div v-else-if="previewType === 'markdown'" class="content-markdown" v-html="renderedMarkdown"></div>
+          <pre v-else class="content-text">{{ viewDocContent }}</pre>
         </div>
       </div>
     </el-dialog>
@@ -235,7 +239,10 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useDocumentStore } from '../store/documentStore'
-import { uploadDocument, uploadExcelFile, getDocumentFields } from '../api'
+import { uploadDocument, uploadExcelFile, getDocumentFields, downloadSourceDocument, downloadBlob } from '../api'
+import { marked } from 'marked'
+import * as XLSX from 'xlsx'
+import mammoth from 'mammoth'
 import { CancelToken } from '../api/request'
 import { storeToRefs } from 'pinia'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -269,10 +276,19 @@ const dragDepth = ref(0)
 const showContentDialog = ref(false)
 const viewDocTitle = ref('')
 const viewDocContent = ref('')
+const previewLoading = ref(false)
+const previewType = ref('text') // 'text' or 'html' or 'markdown'
+const previewBlobUrl = ref('')
+const previewHtml = ref('')
+
+const renderedMarkdown = computed(() => {
+  if (!viewDocContent.value) return ''
+  return marked.parse(viewDocContent.value, { breaks: true, gfm: true })
+})
 
 const typeTagMap = { docx: 'primary', xlsx: 'success', txt: 'info', md: 'warning' }
 const validExts = ['.docx', '.xlsx', '.txt', '.md']
-const maxFileSize = 100 * 1024 * 1024
+const maxFileSize = 200 * 1024 * 1024
 const extractTimerMap = new Map()
 
 const loadDocuments = async (force = false) => {
@@ -303,7 +319,7 @@ const handleFileChange = (file, fileList) => {
     return
   }
   if (file.size > maxFileSize) {
-    ElMessage.error('文件不能超过100MB')
+    ElMessage.error('文件不能超过200MB')
     fileList.pop()
     return
   }
@@ -389,7 +405,7 @@ const onListDrop = (event) => {
     ElMessage.warning(`已忽略 ${invalidType} 个不支持格式文件`)
   }
   if (oversize > 0) {
-    ElMessage.warning(`已忽略 ${oversize} 个超过100MB的文件`)
+    ElMessage.warning(`已忽略 ${oversize} 个超过200MB的文件`)
   }
   if (duplicate > 0) {
     ElMessage.info(`已忽略 ${duplicate} 个重复文件`)
@@ -419,10 +435,22 @@ const doUpload = async () => {
   startBackgroundUpload()
 }
 
-const goChat = () => router.push('/ai-chat')
+const goChat = (row) => {
+  if (row.uploadStatus !== 'parsed') {
+    ElMessage.warning('该文档尚未成功提取，无法关联AI对话')
+    return
+  }
+  router.push({ path: '/ai-chat', query: { docId: row.id, docName: row.fileName } })
+}
 
-const downloadDoc = () => {
-  ElMessage.info('源文档下载接口暂未开放，可在服务器文件存储中获取原文件')
+const downloadDoc = async (row) => {
+  try {
+    const res = await downloadSourceDocument(row.id)
+    downloadBlob(new Blob([res.data]), row.fileName)
+    ElMessage.success('下载成功')
+  } catch (e) {
+    ElMessage.error('下载失败，请重试')
+  }
 }
 
 // 后台异步上传处理
@@ -432,7 +460,10 @@ const startBackgroundUpload = async () => {
   docStore.setUploading(true)
   let successCount = 0
   let failCount = 0
-  const uploadIds = docStore.uploadQueue.map(item => item.id)
+  // 只处理还未开始的队列项，跳过已完成/已失败/已取消的
+  const uploadIds = docStore.uploadQueue
+    .filter(item => item.status === 'pending')
+    .map(item => item.id)
   
   // 并发上传所有文件（或逐个上传，取决于后端能力）
   for (const uploadId of uploadIds) {
@@ -505,7 +536,19 @@ const startBackgroundUpload = async () => {
   // 所有上传完成后刷新文档列表
   if (successCount > 0) {
     await docStore.fetchDocuments({ ...docStore.lastFilters, force: true })
+    // 启动轮询等待后台异步提取完成
+    startParsingPoll()
   }
+
+  // 上传全部完成/失败后，自动隐藏进度浮窗（延迟2秒让用户看到结果）
+  setTimeout(() => {
+    const allDone = docStore.uploadQueue.every(
+      item => item.status === 'success' || item.status === 'failed' || item.status === 'cancelled'
+    )
+    if (allDone) {
+      docStore.clearUploadQueue()
+    }
+  }, 2000)
 }
 
 const ensureExtractSimulation = (uploadId) => {
@@ -586,35 +629,68 @@ const clearUploadQueue = () => {
   docStore.clearUploadQueue()
 }
 
-// 查看已提取的文档内容
-const viewContent = (row) => {
+// 查看已提取的文档内容 -> 改为预览原文件
+const viewContent = async (row) => {
   viewDocTitle.value = row.fileName
-  getDocumentFields(row.id).then((res) => {
-    const fields = res.data || []
-    if (fields.length === 0) {
-      viewDocContent.value = row.docSummary || '暂无抽取结果'
+  viewDocContent.value = ''
+  previewType.value = 'text'
+  previewHtml.value = ''
+  if (previewBlobUrl.value) {
+    URL.revokeObjectURL(previewBlobUrl.value)
+    previewBlobUrl.value = ''
+  }
+  showContentDialog.value = true
+  previewLoading.value = true
+
+  try {
+    const res = await downloadSourceDocument(row.id)
+    const blob = new Blob([res.data])
+    const ext = (row.fileType || '').toLowerCase()
+
+    if (ext === 'txt') {
+      const text = await blob.text()
+      viewDocContent.value = text
+      previewType.value = 'text'
+    } else if (ext === 'md') {
+      const text = await blob.text()
+      viewDocContent.value = text
+      previewType.value = 'markdown'
+    } else if (ext === 'xlsx') {
+      const arrayBuffer = await blob.arrayBuffer()
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+      let html = ''
+      workbook.SheetNames.forEach(name => {
+        const sheet = workbook.Sheets[name]
+        html += `<h4 style="margin:12px 0 8px;color:#4F46E5;">${name}</h4>`
+        html += XLSX.utils.sheet_to_html(sheet, { editable: false })
+      })
+      previewHtml.value = html
+      previewType.value = 'html'
+    } else if (ext === 'docx') {
+      const arrayBuffer = await blob.arrayBuffer()
+      const result = await mammoth.convertToHtml({ arrayBuffer })
+      previewHtml.value = result.value
+      previewType.value = 'html'
     } else {
-      viewDocContent.value = fields
-        .map((f, idx) => `${idx + 1}. ${f.fieldName || f.fieldKey}: ${f.fieldValue || ''}`)
-        .join('\n')
+      viewDocContent.value = '不支持该格式的预览，请下载后查看'
+      previewType.value = 'text'
     }
-    showContentDialog.value = true
-  }).catch(() => {
-    viewDocContent.value = row.docSummary || '暂无抽取结果'
-    showContentDialog.value = true
-  })
+  } catch (e) {
+    viewDocContent.value = '文件预览加载失败，请尝试下载后查看'
+    previewType.value = 'text'
+  } finally {
+    previewLoading.value = false
+  }
 }
 
 const deleteDoc = async (row) => {
   try {
-    await ElMessageBox.confirm(`确定删除文档「${row.title}」？`, '确认删除', {
+    await ElMessageBox.confirm(`确定删除文档「${row.fileName}」？`, '确认删除', {
       type: 'warning',
       confirmButtonText: '删除',
       cancelButtonText: '取消'
     })
-    // Use the store action
     await docStore.deleteDocument(row.id)
-    // The list will refresh automatically
   } catch (e) { /* cancelled */ }
 }
 
@@ -641,12 +717,35 @@ const formatSize = (size) => {
 
 const formatDate = (d) => d ? d.replace('T', ' ').substring(0, 16) : '-'
 
+let parsingPollTimer = null
+
+const startParsingPoll = () => {
+  if (parsingPollTimer) return
+  parsingPollTimer = window.setInterval(async () => {
+    const hasParsing = documents.value?.some(d => d.uploadStatus === 'parsing')
+    if (hasParsing) {
+      await loadDocuments(true)
+    } else {
+      stopParsingPoll()
+    }
+  }, 5000)
+}
+
+const stopParsingPoll = () => {
+  if (parsingPollTimer) {
+    window.clearInterval(parsingPollTimer)
+    parsingPollTimer = null
+  }
+}
+
 onMounted(() => {
-  // Initial load when component is mounted
   loadDocuments()
+  // 启动轮询检查解析中的文档
+  startParsingPoll()
 })
 
 onBeforeUnmount(() => {
+  stopParsingPoll()
   for (const uploadId of extractTimerMap.keys()) {
     stopExtractSimulation(uploadId)
   }
@@ -803,7 +902,7 @@ onBeforeUnmount(() => {
 }
 
 .content-body {
-  max-height: 60vh;
+  max-height: 80vh;
   overflow-y: auto;
 }
 
@@ -816,6 +915,105 @@ onBeforeUnmount(() => {
   background: var(--bg-base);
   padding: 20px;
   border-radius: var(--radius-md);
+}
+
+.content-markdown {
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--text-primary);
+  padding: 20px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.content-markdown :deep(h1),
+.content-markdown :deep(h2),
+.content-markdown :deep(h3) {
+  margin-top: 16px;
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+
+.content-markdown :deep(p) {
+  margin-bottom: 8px;
+}
+
+.content-markdown :deep(code) {
+  background: rgba(0,0,0,0.06);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.content-markdown :deep(pre) {
+  background: #f6f8fa;
+  padding: 12px 16px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin-bottom: 12px;
+}
+
+.content-markdown :deep(table) {
+  border-collapse: collapse;
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.content-markdown :deep(th),
+.content-markdown :deep(td) {
+  border: 1px solid var(--border-light);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.content-markdown :deep(blockquote) {
+  border-left: 4px solid var(--primary);
+  padding-left: 12px;
+  color: var(--text-secondary);
+  margin: 8px 0;
+}
+
+.content-markdown :deep(ul),
+.content-markdown :deep(ol) {
+  padding-left: 20px;
+  margin-bottom: 8px;
+}
+
+.content-html {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  padding: 20px;
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.content-html :deep(table) {
+  border-collapse: collapse;
+  width: 100%;
+  margin-bottom: 16px;
+}
+
+.content-html :deep(th),
+.content-html :deep(td) {
+  border: 1px solid #ddd;
+  padding: 6px 10px;
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.content-html :deep(th) {
+  background: #f5f5f5;
+  font-weight: 600;
+}
+
+.content-html :deep(tr:nth-child(even)) {
+  background: #fafafa;
+}
+
+.content-html :deep(p) {
+  margin-bottom: 8px;
 }
 
 /* Upload Queue Styles */

@@ -1,1 +1,0 @@
-{"code":200,"message":"模板上传成功","data":{"id":10000003,"userId":10000009,"fileName":"template.xlsx","templateType":"xlsx","storagePath":"C:\\Users\\19624\\AppData\\Local\\Temp\\docai_template_6938977494569582689\\template.xlsx","ossKey":null,"fileSize":4906,"parseStatus":"uploaded","slotCount":null,"outputPath":null,"createdAt":null,"updatedAt":null}}

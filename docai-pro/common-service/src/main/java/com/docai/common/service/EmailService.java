@@ -23,4 +23,7 @@ public interface EmailService {
             byte[] attachmentBytes,
             String attachmentType
     );
+
+    // 发送纯HTML内容邮件
+    boolean sendHtmlEmail(String email, String subject, String htmlContent);
 }

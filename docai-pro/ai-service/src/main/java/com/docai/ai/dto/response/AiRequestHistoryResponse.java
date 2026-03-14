@@ -26,6 +26,7 @@ public class AiRequestHistoryResponse {
     private String aiResponse;
 
     // 请求类型
+    @Builder.Default
     private String requestType = "AI";
 
     // 请求状态
