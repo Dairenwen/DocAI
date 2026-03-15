@@ -67,6 +67,9 @@ public class LogOperationAspect {
             // 5. 响应的结果需要返回去
             return result;
         } catch (Throwable e) {
+            if (e instanceof RuntimeException) {
+                throw (RuntimeException) e;
+            }
             throw new RuntimeException(e);
         }
 

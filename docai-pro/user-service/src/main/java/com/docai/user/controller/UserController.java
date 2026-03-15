@@ -63,7 +63,7 @@ public class UserController {
      */
     @GetMapping("/info")
     @LogOperation("用户信息查询")
-    public Result<UserInfoResponse> getUserInfo(@RequestHeader(value = "Authorization", required = true) String authorization) {
+    public Result<UserInfoResponse> getUserInfo(@RequestHeader(value = "Authorization", required = false) String authorization) {
         return Result.success("success", userService.getUserInfo(authorization));
     }
 
@@ -73,7 +73,7 @@ public class UserController {
     @PostMapping("/change-password")
     @LogOperation("修改密码")
     public Result<ChangePasswordResponse> changePassword(
-            @RequestHeader(value = "Authorization", required = true) String authorization,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody @Valid ChangePasswordRequest request
     ) {
         return Result.success("success", userService.changePassword(request, authorization));
@@ -94,7 +94,7 @@ public class UserController {
      */
     @PostMapping("/logout")
     @LogOperation("用户退出")
-    public Result<Void> logout(@RequestHeader(value = "Authorization", required = true) String authorization) {
+    public Result<Void> logout(@RequestHeader(value = "Authorization", required = false) String authorization) {
         userService.logout(authorization);
         return Result.success("登出成功", null);
     }

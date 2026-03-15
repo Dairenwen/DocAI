@@ -23,15 +23,7 @@ export const uploadSourceDocument = (file, onProgress, cancelToken) => {
   })
 }
 
-// 兼容旧调用签名
-export const uploadDocument = (formData, onProgress, cancelToken) => {
-  const file = formData?.get('file')
-  if (!file) return Promise.reject(new Error('缺少文件参数'))
-  return uploadSourceDocument(file, onProgress, cancelToken)
-}
-
 export const getSourceDocuments = () => request.get('/source/documents')
-export const getDocuments = () => getSourceDocuments()
 export const getDocument = (id) => request.get(`/source/${id}`)
 export const getDocumentFields = (id) => request.get(`/source/${id}/fields`)
 export const downloadSourceDocument = (docId) => request.get(`/source/${docId}/download`, { responseType: 'blob' })
@@ -101,18 +93,38 @@ export const deleteExcelFiles = (fileIds) => request.delete('/files/delete', { d
 
 // ==================== AI 对话（SSE） ====================
 
-export const aiChat = async ({ message, documentId }) => {
+export const aiChat = async ({ message, documentId, signal }) => {
   const token = localStorage.getItem('token')
-  const response = await fetch('/api/v1/ai/chat/stream', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: token ? `Bearer ${token}` : ''
-    },
-    body: JSON.stringify({ fileId: documentId || null, userInput: message })
-  })
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 300000) // 5分钟超时，匹配后端SSE超时
+
+  // If an external signal is provided, link it to our controller
+  if (signal) {
+    if (signal.aborted) { clearTimeout(timeoutId); controller.abort(); }
+    else { signal.addEventListener('abort', () => { clearTimeout(timeoutId); controller.abort() }, { once: true }) }
+  }
+
+  let response
+  try {
+    response = await fetch('/api/v1/ai/chat/stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: token ? `Bearer ${token}` : ''
+      },
+      body: JSON.stringify({ fileId: documentId || null, userInput: message }),
+      signal: controller.signal
+    })
+  } catch (err) {
+    clearTimeout(timeoutId)
+    if (err.name === 'AbortError') {
+      throw new Error('AI响应超时（5分钟），请尝试缩短文档内容或简化指令后重试')
+    }
+    throw err
+  }
 
   if (!response.ok || !response.body) {
+    clearTimeout(timeoutId)
     const text = await response.text().catch(() => '')
     throw new Error(text || `请求失败(${response.status})`)
   }
@@ -124,53 +136,63 @@ export const aiChat = async ({ message, documentId }) => {
   let modifiedExcelUrl = ''
   let resultData = []
 
-  while (true) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
 
-    let splitIndex = buffer.indexOf('\n\n')
-    while (splitIndex !== -1) {
-      const block = buffer.slice(0, splitIndex)
-      buffer = buffer.slice(splitIndex + 2)
-      splitIndex = buffer.indexOf('\n\n')
+      let splitIndex = buffer.indexOf('\n\n')
+      while (splitIndex !== -1) {
+        const block = buffer.slice(0, splitIndex)
+        buffer = buffer.slice(splitIndex + 2)
+        splitIndex = buffer.indexOf('\n\n')
 
-      const lines = block.split('\n')
-      let eventName = ''
-      let dataLine = ''
+        const lines = block.split('\n')
+        let eventName = ''
+        let dataLine = ''
 
-      lines.forEach((line) => {
-        if (line.startsWith('event:')) eventName = line.slice(6).trim()
-        if (line.startsWith('data:')) dataLine += line.slice(5).trim()
-      })
+        lines.forEach((line) => {
+          if (line.startsWith('event:')) eventName = line.slice(6).trim()
+          if (line.startsWith('data:')) dataLine += line.slice(5).trim()
+        })
 
-      if (!dataLine) continue
+        if (!dataLine) continue
 
-      try {
-        const payload = JSON.parse(dataLine)
-        if (payload.error) {
-          throw new Error(payload.error)
-        }
-        if (eventName === 'complete' || payload.eventType === 'complete') {
-          const result = payload.result || {}
-          finalText = result.aiResponse || payload.aiResponseContent || ''
-          modifiedExcelUrl = result.modifiedExcelUrl || ''
-          resultData = Array.isArray(result.resultData) ? result.resultData : []
-          if (!finalText && Array.isArray(result.resultData) && result.resultData.length > 0) {
-            finalText = JSON.stringify(result.resultData, null, 2)
+        try {
+          const payload = JSON.parse(dataLine)
+          if (payload.error) {
+            throw new Error(payload.error)
           }
-          if (!finalText) {
-            finalText = 'AI 已完成处理，但未返回可展示文本。'
+          if (eventName === 'complete' || payload.eventType === 'complete') {
+            const result = payload.result || {}
+            finalText = result.aiResponse || payload.aiResponseContent || ''
+            modifiedExcelUrl = result.modifiedExcelUrl || ''
+            resultData = Array.isArray(result.resultData) ? result.resultData : []
+            if (!finalText && Array.isArray(result.resultData) && result.resultData.length > 0) {
+              finalText = JSON.stringify(result.resultData, null, 2)
+            }
+            if (!finalText) {
+              finalText = 'AI 已完成处理，但未返回可展示文本。'
+            }
           }
+          // 从进度事件中提取AI响应内容（用于兜底）
+          if (!finalText && payload.aiResponseContent) {
+            finalText = payload.aiResponseContent
+          }
+        } catch (e) {
+          if (e instanceof Error) throw e
         }
-        // 从进度事件中提取AI响应内容（用于兜底）
-        if (!finalText && payload.aiResponseContent) {
-          finalText = payload.aiResponseContent
-        }
-      } catch (e) {
-        if (e instanceof Error) throw e
       }
     }
+  } catch (err) {
+    clearTimeout(timeoutId)
+    if (err.name === 'AbortError') {
+      throw new Error('AI响应超时（5分钟），请尝试缩短文档内容或简化指令后重试')
+    }
+    throw err
+  } finally {
+    clearTimeout(timeoutId)
   }
 
   // 如果流结束但没有收到complete事件，使用兜底信息
@@ -198,6 +220,15 @@ export const updateDocumentContent = () => Promise.reject(new Error('当前后�
 export const getLlmProviders = () => request.get('/llm/providers/list')
 export const getCurrentLlmProvider = () => request.get('/llm/providers/current')
 export const switchLlmProvider = (providerName) => request.post('/llm/providers/switch', { providerName })
+
+// ==================== 对话会话管理 ====================
+
+export const listConversations = () => request.get('/ai/conversations')
+export const createConversation = (data) => request.post('/ai/conversations', data)
+export const updateConversation = (id, data) => request.put(`/ai/conversations/${id}`, data)
+export const deleteConversationApi = (id) => request.delete(`/ai/conversations/${id}`)
+export const getConversationMessages = (id) => request.get(`/ai/conversations/${id}/messages`)
+export const addConversationMessage = (id, data) => request.post(`/ai/conversations/${id}/messages`, data)
 
 // ==================== 工具函数 ====================
 

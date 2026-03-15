@@ -33,7 +33,7 @@ public class AiController {
     // AI流式对话
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamUnifiedChat(
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody AiChatRequest aiChatRequest
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
@@ -75,7 +75,7 @@ public class AiController {
     // 请求分页查询记录
     @GetMapping("/requests")
     public Result<IPage<AiRequestHistoryResponse>> getRequestHistory(
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @Validated AiRequestHistoryRequest aiRequestHistoryRequest
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
@@ -89,7 +89,7 @@ public class AiController {
     // 发送修改后的excel文件到邮箱
     @PostMapping("/send-email")
     public Result<Boolean> sendEmailWithExcel(
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody @Validated SendEmailRequest sendEmailRequest
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
@@ -102,7 +102,7 @@ public class AiController {
     // 发送AI内容到邮箱（纯文本/HTML）
     @PostMapping("/send-content-email")
     public Result<Boolean> sendContentEmail(
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody @Validated SendContentEmailRequest request
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);

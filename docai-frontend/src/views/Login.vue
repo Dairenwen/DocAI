@@ -38,36 +38,50 @@
             </svg>
           </div>
           <h1 class="brand-title">DocAI</h1>
-          <p class="brand-slogan">Intelligent Document Processing System</p>
-          <p class="brand-slogan-cn">智能文档处理系统</p>
+          <p class="brand-slogan">智能文档处理系统</p>
+          <p class="brand-slogan-cn">AI 驱动 · 高效办公 · 一键填表</p>
           <div class="brand-divider"></div>
           <div class="brand-features">
             <div class="bf-item">
               <div class="bf-dot"></div>
               <div class="bf-text">
-                <span class="bf-en">Smart Editing</span>
-                <span class="bf-cn">文档智能编辑</span>
+                <span class="bf-main">AI 智能对话</span>
+                <span class="bf-desc">基于大语言模型，与文档深度交互</span>
               </div>
             </div>
             <div class="bf-item">
               <div class="bf-dot"></div>
               <div class="bf-text">
-                <span class="bf-en">Data Extraction</span>
-                <span class="bf-cn">信息自动提取</span>
+                <span class="bf-main">文档信息提取</span>
+                <span class="bf-desc">自动识别并提取关键字段与结构化数据</span>
               </div>
             </div>
             <div class="bf-item">
               <div class="bf-dot"></div>
               <div class="bf-text">
-                <span class="bf-en">Auto Fill Tables</span>
-                <span class="bf-cn">表格自动填写</span>
+                <span class="bf-main">表格一键填写</span>
+                <span class="bf-desc">智能匹配数据，批量填充模板并导出</span>
+              </div>
+            </div>
+            <div class="bf-item">
+              <div class="bf-dot"></div>
+              <div class="bf-text">
+                <span class="bf-main">智能写作生成</span>
+                <span class="bf-desc">支持通知、报告、请示等公文一键生成</span>
+              </div>
+            </div>
+            <div class="bf-item">
+              <div class="bf-dot"></div>
+              <div class="bf-text">
+                <span class="bf-main">多格式兼容</span>
+                <span class="bf-desc">支持 Word、Excel、TXT、Markdown 等格式</span>
               </div>
             </div>
           </div>
           <div class="brand-tech">
-            <span class="tech-tag">GLM-4.7-Flash</span>
-            <span class="tech-tag">Spring Boot</span>
-            <span class="tech-tag">Vue 3</span>
+            <span class="tech-tag">大语言模型</span>
+            <span class="tech-tag">微服务架构</span>
+            <span class="tech-tag">智能办公</span>
           </div>
         </div>
       </div>
@@ -75,14 +89,14 @@
       <!-- Right form panel -->
       <div class="auth-form-panel">
         <div class="form-header">
-          <h2>{{ isLogin ? 'Welcome Back' : 'Create Account' }}</h2>
-          <p>{{ isLogin ? '欢迎回来，请登录您的账户' : '创建新账户，开始智能文档处理之旅' }}</p>
+          <h2>{{ isLogin ? '欢迎回来' : '创建账户' }}</h2>
+          <p>{{ isLogin ? '登录您的账户，开始智能文档处理' : '创建新账户，开始智能文档处理之旅' }}</p>
         </div>
 
         <!-- Login form -->
         <div v-if="isLogin" class="auth-form">
           <el-form :model="loginForm" :rules="loginRules" ref="loginFormRef" @submit.prevent="handleLogin">
-            <div class="form-label">Username / 用户名</div>
+            <div class="form-label">用户名</div>
             <el-form-item prop="username">
               <el-input
                 v-model="loginForm.username"
@@ -92,7 +106,7 @@
                 @keydown.enter="handleLogin"
               />
             </el-form-item>
-            <div class="form-label">Password / 密码</div>
+            <div class="form-label">密码</div>
             <el-form-item prop="password">
               <el-input
                 v-model="loginForm.password"
@@ -111,7 +125,7 @@
               :loading="loading"
               @click="handleLogin"
             >
-              Sign In / 登录
+              登 录
             </el-button>
           </el-form>
           <div class="extra-actions">
@@ -119,15 +133,15 @@
             <a @click="openResetDialog">忘记密码</a>
           </div>
           <div class="auth-switch">
-            <span>Don't have an account?</span>
-            <a @click="isLogin = false">Register / 注册</a>
+            <span>还没有账户？</span>
+            <a @click="isLogin = false">立即注册</a>
           </div>
         </div>
 
         <!-- Register form -->
         <div v-else class="auth-form">
           <el-form :model="registerForm" :rules="registerRules" ref="registerFormRef" @submit.prevent="handleRegister">
-            <div class="form-label">Username / 用户名 <span class="form-hint">(3-20 characters)</span></div>
+            <div class="form-label">用户名 <span class="form-hint">（3-20位）</span></div>
             <el-form-item prop="username">
               <el-input
                 v-model="registerForm.username"
@@ -136,7 +150,7 @@
                 prefix-icon="User"
               />
             </el-form-item>
-            <div class="form-label">Nickname / 昵称 <span class="form-hint">(optional)</span></div>
+            <div class="form-label">昵称 <span class="form-hint">（选填）</span></div>
             <el-form-item prop="nickname">
               <el-input
                 v-model="registerForm.nickname"
@@ -145,7 +159,7 @@
                 prefix-icon="UserFilled"
               />
             </el-form-item>
-            <div class="form-label">Password / 密码 <span class="form-hint">(min 6 chars)</span></div>
+            <div class="form-label">密码 <span class="form-hint">（至少6位）</span></div>
             <el-form-item prop="password">
               <el-input
                 v-model="registerForm.password"
@@ -156,7 +170,7 @@
                 show-password
               />
             </el-form-item>
-            <div class="form-label">Confirm Password / 确认密码</div>
+            <div class="form-label">确认密码</div>
             <el-form-item prop="confirmPassword">
               <el-input
                 v-model="registerForm.confirmPassword"
@@ -175,12 +189,12 @@
               :loading="loading"
               @click="handleRegister"
             >
-              Register / 注册
+              注 册
             </el-button>
           </el-form>
           <div class="auth-switch">
-            <span>Already have an account?</span>
-            <a @click="isLogin = true">Sign In / 登录</a>
+            <span>已有账户？</span>
+            <a @click="isLogin = true">立即登录</a>
           </div>
           <div class="extra-actions">
             <a @click="openEmailAuthDialog">邮箱验证码注册/登录</a>
@@ -188,7 +202,7 @@
         </div>
 
         <div class="auth-footer">
-          <span>DocAI -- Intelligent Document Processing System</span>
+          <span>DocAI — 智能文档处理系统</span>
         </div>
       </div>
     </div>
@@ -245,7 +259,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { authLogin, authRegister, authByEmailCode, sendVerificationCode, resetPasswordByEmail } from '../api'
 import { ElMessage } from 'element-plus'
@@ -277,36 +291,46 @@ const onMouseMove = (e) => {
 
 // Floating bilingual characters - many more spread across background
 const floatingWords = [
-  { text: 'D', delay: '0s', left: '3%', top: '8%', size: '20px', opacity: 0.14 },
-  { text: '智', delay: '1s', left: '80%', top: '6%', size: '22px', opacity: 0.13 },
-  { text: 'E', delay: '2s', left: '15%', top: '85%', size: '18px', opacity: 0.12 },
-  { text: '文', delay: '3s', left: '70%', top: '82%', size: '20px', opacity: 0.14 },
-  { text: 'A', delay: '0.5s', left: '92%', top: '45%', size: '17px', opacity: 0.11 },
-  { text: '数', delay: '1.5s', left: '2%', top: '50%', size: '19px', opacity: 0.13 },
-  { text: 'I', delay: '2.5s', left: '60%', top: '92%', size: '16px', opacity: 0.10 },
-  { text: 'N', delay: '4s', left: '93%', top: '18%', size: '20px', opacity: 0.12 },
-  { text: '析', delay: '3.5s', left: '25%', top: '95%', size: '18px', opacity: 0.11 },
-  { text: 'P', delay: '1.2s', left: '50%', top: '3%', size: '16px', opacity: 0.10 },
-  { text: '据', delay: '0.8s', left: '38%', top: '12%', size: '19px', opacity: 0.12 },
-  { text: 'o', delay: '2.2s', left: '88%', top: '70%', size: '15px', opacity: 0.10 },
-  { text: '处', delay: '1.8s', left: '8%', top: '30%', size: '20px', opacity: 0.13 },
-  { text: 'c', delay: '3.2s', left: '45%', top: '75%', size: '16px', opacity: 0.11 },
-  { text: '理', delay: '0.3s', left: '72%', top: '25%', size: '18px', opacity: 0.12 },
-  { text: 'S', delay: '2.8s', left: '55%', top: '15%', size: '17px', opacity: 0.11 },
-  { text: '提', delay: '1.6s', left: '18%', top: '68%', size: '20px', opacity: 0.14 },
-  { text: 'y', delay: '3.8s', left: '85%', top: '55%', size: '15px', opacity: 0.10 },
-  { text: '取', delay: '0.6s', left: '32%', top: '40%', size: '19px', opacity: 0.13 },
-  { text: 's', delay: '4.2s', left: '95%', top: '88%', size: '14px', opacity: 0.09 },
-  { text: '编', delay: '2.0s', left: '5%', top: '75%', size: '21px', opacity: 0.14 },
-  { text: 't', delay: '3.0s', left: '62%', top: '58%', size: '16px', opacity: 0.10 },
-  { text: '辑', delay: '1.0s', left: '78%', top: '38%', size: '19px', opacity: 0.12 },
-  { text: 'e', delay: '4.5s', left: '42%', top: '48%', size: '15px', opacity: 0.09 },
-  { text: '填', delay: '0.9s', left: '28%', top: '22%', size: '18px', opacity: 0.11 },
-  { text: 'm', delay: '3.6s', left: '68%', top: '65%', size: '16px', opacity: 0.10 },
-  { text: '写', delay: '2.4s', left: '12%', top: '58%', size: '20px', opacity: 0.13 },
-  { text: 'V', delay: '1.4s', left: '52%', top: '88%', size: '17px', opacity: 0.11 },
-  { text: '能', delay: '4.0s', left: '90%', top: '32%', size: '19px', opacity: 0.12 },
-  { text: 'u', delay: '0.2s', left: '35%', top: '55%', size: '14px', opacity: 0.09 },
+  { text: '智', delay: '0s', left: '3%', top: '8%', size: '22px', opacity: 0.14 },
+  { text: '能', delay: '1s', left: '80%', top: '6%', size: '20px', opacity: 0.13 },
+  { text: '文', delay: '2s', left: '15%', top: '85%', size: '21px', opacity: 0.12 },
+  { text: '档', delay: '3s', left: '70%', top: '82%', size: '20px', opacity: 0.14 },
+  { text: '处', delay: '0.5s', left: '92%', top: '45%', size: '19px', opacity: 0.11 },
+  { text: '理', delay: '1.5s', left: '2%', top: '50%', size: '20px', opacity: 0.13 },
+  { text: '抽', delay: '2.5s', left: '60%', top: '92%', size: '18px', opacity: 0.10 },
+  { text: '取', delay: '4s', left: '93%', top: '18%', size: '20px', opacity: 0.12 },
+  { text: '分', delay: '3.5s', left: '25%', top: '95%', size: '19px', opacity: 0.11 },
+  { text: '析', delay: '1.2s', left: '50%', top: '3%', size: '18px', opacity: 0.10 },
+  { text: '数', delay: '0.8s', left: '38%', top: '12%', size: '19px', opacity: 0.12 },
+  { text: '据', delay: '2.2s', left: '88%', top: '70%', size: '18px', opacity: 0.10 },
+  { text: '填', delay: '1.8s', left: '8%', top: '30%', size: '22px', opacity: 0.13 },
+  { text: '表', delay: '3.2s', left: '45%', top: '75%', size: '19px', opacity: 0.11 },
+  { text: '模', delay: '0.3s', left: '72%', top: '25%', size: '20px', opacity: 0.12 },
+  { text: '板', delay: '2.8s', left: '55%', top: '15%', size: '18px', opacity: 0.11 },
+  { text: '提', delay: '1.6s', left: '18%', top: '68%', size: '21px', opacity: 0.14 },
+  { text: '交', delay: '3.8s', left: '85%', top: '55%', size: '17px', opacity: 0.10 },
+  { text: '编', delay: '0.6s', left: '32%', top: '40%', size: '20px', opacity: 0.13 },
+  { text: '辑', delay: '4.2s', left: '95%', top: '88%', size: '18px', opacity: 0.09 },
+  { text: '识', delay: '2.0s', left: '5%', top: '75%', size: '21px', opacity: 0.14 },
+  { text: '别', delay: '3.0s', left: '62%', top: '58%', size: '18px', opacity: 0.10 },
+  { text: '匹', delay: '1.0s', left: '78%', top: '38%', size: '19px', opacity: 0.12 },
+  { text: '配', delay: '4.5s', left: '42%', top: '48%', size: '17px', opacity: 0.09 },
+  { text: '写', delay: '0.9s', left: '28%', top: '22%', size: '20px', opacity: 0.11 },
+  { text: '作', delay: '3.6s', left: '68%', top: '65%', size: '18px', opacity: 0.10 },
+  { text: '生', delay: '2.4s', left: '12%', top: '58%', size: '20px', opacity: 0.13 },
+  { text: '成', delay: '1.4s', left: '52%', top: '88%', size: '19px', opacity: 0.11 },
+  { text: '润', delay: '4.0s', left: '90%', top: '32%', size: '20px', opacity: 0.12 },
+  { text: '色', delay: '0.2s', left: '35%', top: '55%', size: '17px', opacity: 0.09 },
+  { text: '公', delay: '1.3s', left: '10%', top: '15%', size: '19px', opacity: 0.11 },
+  { text: '办', delay: '2.6s', left: '65%', top: '10%', size: '18px', opacity: 0.10 },
+  { text: '自', delay: '0.7s', left: '82%', top: '78%', size: '20px', opacity: 0.12 },
+  { text: '动', delay: '3.3s', left: '20%', top: '45%', size: '19px', opacity: 0.11 },
+  { text: '解', delay: '1.9s', left: '48%', top: '35%', size: '18px', opacity: 0.10 },
+  { text: '构', delay: '4.3s', left: '75%', top: '50%', size: '17px', opacity: 0.09 },
+  { text: '导', delay: '2.1s', left: '58%', top: '72%', size: '20px', opacity: 0.12 },
+  { text: '出', delay: '0.4s', left: '40%', top: '62%', size: '18px', opacity: 0.10 },
+  { text: '语', delay: '3.9s', left: '7%', top: '90%', size: '19px', opacity: 0.11 },
+  { text: '义', delay: '1.7s', left: '87%', top: '15%', size: '17px', opacity: 0.09 },
 ]
 
 // Proximity-based character color/opacity: chars near mouse glow brighter and change color
@@ -443,6 +467,13 @@ const startCodeCountDown = () => {
   }, 1000)
 }
 
+onBeforeUnmount(() => {
+  if (codeTimer) {
+    clearInterval(codeTimer)
+    codeTimer = null
+  }
+})
+
 const sendCode = async (email) => {
   if (!email) {
     ElMessage.warning('请先输入邮箱')
@@ -572,7 +603,7 @@ const handleRegister = async () => {
 
 <style scoped>
 .extra-actions {
-  margin-top: 12px;
+  margin-top: 8px;
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -709,7 +740,7 @@ const handleRegister = async () => {
   display: flex;
   width: 900px;
   max-width: 95vw;
-  min-height: 560px;
+  min-height: 480px;
   background: #ffffff;
   border: 1px solid #e5e7eb;
   border-radius: 20px;
@@ -727,7 +758,7 @@ const handleRegister = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 40px;
+  padding: 32px;
   position: relative;
   overflow: hidden;
 }
@@ -812,7 +843,7 @@ const handleRegister = async () => {
   box-shadow: 0 0 10px rgba(79, 70, 229, 0.3);
 }
 
-.bf-item:hover .bf-en {
+.bf-item:hover .bf-main {
   color: #1a1a2e;
 }
 
@@ -823,6 +854,7 @@ const handleRegister = async () => {
   background: rgba(79, 70, 229, 0.3);
   flex-shrink: 0;
   transition: all 0.3s;
+  margin-top: 6px;
 }
 
 .bf-text {
@@ -831,16 +863,17 @@ const handleRegister = async () => {
   gap: 2px;
 }
 
-.bf-en {
+.bf-main {
   font-size: 13px;
   color: #374151;
   font-weight: 500;
   transition: color 0.3s;
 }
 
-.bf-cn {
+.bf-desc {
   font-size: 11px;
   color: #9ca3af;
+  line-height: 1.4;
 }
 
 .brand-tech {
@@ -862,14 +895,14 @@ const handleRegister = async () => {
 /* Right form panel */
 .auth-form-panel {
   flex: 1;
-  padding: 40px 44px;
+  padding: 28px 44px;
   display: flex;
   flex-direction: column;
   justify-content: center;
 }
 
 .form-header {
-  margin-bottom: 28px;
+  margin-bottom: 16px;
 }
 
 .form-header h2 {
@@ -899,11 +932,11 @@ const handleRegister = async () => {
 }
 
 .auth-form {
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
 
 .auth-form :deep(.el-form-item) {
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 
 .auth-form :deep(.el-input__wrapper) {
@@ -943,11 +976,11 @@ const handleRegister = async () => {
 
 .auth-submit-btn {
   width: 100%;
-  height: 48px;
+  height: 44px;
   font-size: 15px;
   font-weight: 600;
   border-radius: 10px;
-  margin-top: 8px;
+  margin-top: 4px;
   background: linear-gradient(135deg, #4F46E5, #7C3AED) !important;
   border: none !important;
   color: white !important;
@@ -965,7 +998,7 @@ const handleRegister = async () => {
   text-align: center;
   font-size: 13px;
   color: #9ca3af;
-  margin-top: 20px;
+  margin-top: 14px;
   display: flex;
   align-items: center;
   justify-content: center;

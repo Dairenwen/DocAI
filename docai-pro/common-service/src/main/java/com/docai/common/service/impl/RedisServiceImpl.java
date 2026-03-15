@@ -140,10 +140,16 @@ public class RedisServiceImpl implements RedisService {
 
     @Override
     public Long getUserIdByAuthorization(String authorization) {
+        if (authorization == null || authorization.isBlank()) {
+            return null;
+        }
         // 1. 获取原生的token
         String token = authorization.replaceFirst("(?i)^Bearer ", "").trim();
         String key = TOKEN_PREFIX + token;
         String value = stringRedisTemplate.opsForValue().get(key);
+        if (value == null) {
+            return null;
+        }
 
         try {
             TokenInfo tokenInfo = objectMapper.readValue(value, TokenInfo.class);
@@ -157,6 +163,9 @@ public class RedisServiceImpl implements RedisService {
 
     @Override
     public void removeAuthorization(String authorization) {
+        if (authorization == null || authorization.isBlank()) {
+            return;
+        }
         // 1. 获取原生的token
         String token = authorization.replaceFirst("(?i)^Bearer ", "").trim();
         // 2. 删除用户令牌缓存

@@ -261,7 +261,9 @@ $gatewayJvmArgs = @(
     '-Dspring.cloud.bootstrap.enabled=false',
     '-Dspring.cloud.nacos.config.enabled=false',
     '-Dspring.cloud.nacos.discovery.enabled=false',
-    '-Dspring.codec.max-in-memory-size=200MB'
+    '-Dspring.codec.max-in-memory-size=200MB',
+    '-Dspring.cloud.gateway.httpclient.response-timeout=300s',
+    '-Dspring.cloud.gateway.httpclient.connect-timeout=10000'
 )
 
 $dashscopeApiKey = Get-EnvValue 'DOC_DASHSCOPE_API_KEY' 'local-placeholder-key'
@@ -277,7 +279,7 @@ $aiArgs = @(
     '--spring.ai.alibaba.dashscope.chat.options.temperature=0.7',
     '--spring.ai.alibaba.dashscope.chat.options.max-tokens=8192',
     '--spring.ai.alibaba.dashscope.http.connect-timeout=60000',
-    '--spring.ai.alibaba.dashscope.http.read-timeout=180000',
+    '--spring.ai.alibaba.dashscope.http.read-timeout=300000',
     '--spring.ai.alibaba.dashscope.http.write-timeout=60000',
     "--spring.ai.deepseek.api-key=$deepseekApiKey",
     '--spring.ai.deepseek.base-url=https://api.deepseek.com',
@@ -285,7 +287,7 @@ $aiArgs = @(
     '--spring.ai.deepseek.chat.options.temperature=0.7',
     '--spring.ai.deepseek.chat.options.max-tokens=8192',
     '--spring.ai.deepseek.http.connect-timeout=60000',
-    '--spring.ai.deepseek.http.read-timeout=180000',
+    '--spring.ai.deepseek.http.read-timeout=300000',
     '--spring.ai.deepseek.http.write-timeout=60000'
 )
 

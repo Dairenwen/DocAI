@@ -24,6 +24,12 @@
         </el-button>
       </div>
       <div class="toolbar-right">
+        <el-button type="warning" plain @click="batchDownload" :disabled="selectedIds.length === 0">
+          <el-icon><Download /></el-icon> 下载已选 <span v-if="selectedIds.length">({{ selectedIds.length }})</span>
+        </el-button>
+        <el-button type="danger" plain @click="batchDelete" :disabled="selectedIds.length === 0">
+          <el-icon><Delete /></el-icon> 删除已选 <span v-if="selectedIds.length">({{ selectedIds.length }})</span>
+        </el-button>
         <el-button type="primary" @click="showUploadDialog = true">
           <el-icon><UploadFilled /></el-icon> 上传文档
         </el-button>
@@ -34,6 +40,9 @@
     <div class="stats-bar">
       <el-tag effect="plain" round>
         共 <strong>{{ total }}</strong> 个文档
+      </el-tag>
+      <el-tag v-if="selectedIds.length" type="success" effect="plain" round>
+        已选 <strong>{{ selectedIds.length }}</strong> 个
       </el-tag>
       <el-tag v-if="keyword" type="info" closable @close="keyword = ''; loadDocuments()">
         搜索: {{ keyword }}
@@ -154,7 +163,7 @@
           <template #default="{ row }">
             <div class="action-buttons">
               <el-tooltip content="文件预览" placement="top">
-                <el-button size="small" type="primary" plain round @click="viewContent(row)">
+                <el-button size="small" class="preview-btn" plain round @click="viewContent(row)">
                   <el-icon><View /></el-icon>
                 </el-button>
               </el-tooltip>
@@ -239,8 +248,9 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useDocumentStore } from '../store/documentStore'
-import { uploadDocument, uploadExcelFile, getDocumentFields, downloadSourceDocument, downloadBlob } from '../api'
+import { uploadSourceDocument, uploadExcelFile, getDocumentFields, downloadSourceDocument, downloadBlob } from '../api'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import * as XLSX from 'xlsx'
 import mammoth from 'mammoth'
 import { CancelToken } from '../api/request'
@@ -283,7 +293,7 @@ const previewHtml = ref('')
 
 const renderedMarkdown = computed(() => {
   if (!viewDocContent.value) return ''
-  return marked.parse(viewDocContent.value, { breaks: true, gfm: true })
+  return DOMPurify.sanitize(marked.parse(viewDocContent.value, { breaks: true, gfm: true }))
 })
 
 const typeTagMap = { docx: 'primary', xlsx: 'success', txt: 'info', md: 'warning' }
@@ -453,6 +463,24 @@ const downloadDoc = async (row) => {
   }
 }
 
+const batchDownload = async () => {
+  if (selectedIds.value.length === 0) return
+  const selectedDocs = documents.value.filter(d => selectedIds.value.includes(d.id))
+  let success = 0
+  let fail = 0
+  for (const doc of selectedDocs) {
+    try {
+      const res = await downloadSourceDocument(doc.id)
+      downloadBlob(new Blob([res.data]), doc.fileName)
+      success++
+    } catch (e) {
+      fail++
+    }
+  }
+  if (success > 0) ElMessage.success(`成功下载 ${success} 个文档`)
+  if (fail > 0) ElMessage.warning(`${fail} 个文档下载失败`)
+}
+
 // 后台异步上传处理
 const startBackgroundUpload = async () => {
   if (docStore.uploadQueue.length === 0) return
@@ -476,9 +504,6 @@ const startBackgroundUpload = async () => {
     docStore.updateUploadTransferProgress(uploadId, 0)
     
     try {
-      const formData = new FormData()
-      formData.append('file', queueItem.fileItem)
-      
       // 创建取消令牌
       let cancelFunc
       const cancelToken = new CancelToken((c) => {
@@ -489,7 +514,7 @@ const startBackgroundUpload = async () => {
       docStore.registerCancelToken(uploadId, { cancel: cancelFunc })
       
       // 上传文件
-      await uploadDocument(formData, (progressEvent) => {
+      await uploadSourceDocument(queueItem.fileItem, (progressEvent) => {
         if (progressEvent.total > 0) {
           const uploadPercent = Math.min(100, Math.round((progressEvent.loaded / progressEvent.total) * 100))
           docStore.updateUploadTransferProgress(uploadId, uploadPercent)
@@ -664,12 +689,12 @@ const viewContent = async (row) => {
         html += `<h4 style="margin:12px 0 8px;color:#4F46E5;">${name}</h4>`
         html += XLSX.utils.sheet_to_html(sheet, { editable: false })
       })
-      previewHtml.value = html
+      previewHtml.value = DOMPurify.sanitize(html)
       previewType.value = 'html'
     } else if (ext === 'docx') {
       const arrayBuffer = await blob.arrayBuffer()
       const result = await mammoth.convertToHtml({ arrayBuffer })
-      previewHtml.value = result.value
+      previewHtml.value = DOMPurify.sanitize(result.value)
       previewType.value = 'html'
     } else {
       viewDocContent.value = '不支持该格式的预览，请下载后查看'
@@ -884,6 +909,16 @@ onBeforeUnmount(() => {
 
 .action-buttons .el-button {
   padding: 6px 10px;
+}
+.preview-btn {
+  color: #409eff !important;
+  border-color: #a0cfff !important;
+  background-color: #ecf5ff !important;
+}
+.preview-btn:hover {
+  color: #fff !important;
+  background-color: #409eff !important;
+  border-color: #409eff !important;
 }
 
 /* Content dialog */

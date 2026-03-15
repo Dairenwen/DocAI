@@ -20,8 +20,7 @@ public class HttpClientConfig {
         // 连接超时时间、请求超时时间、响应超时时间
         RequestConfig requestConfig = RequestConfig.custom()
                 .setConnectionRequestTimeout(30, TimeUnit.SECONDS)
-                .setConnectionRequestTimeout(180, TimeUnit.SECONDS)
-                .setResponseTimeout(180, TimeUnit.SECONDS)
+                .setResponseTimeout(300, TimeUnit.SECONDS)
                 .build();
 
         // 创建客户端

@@ -31,8 +31,21 @@ request.interceptors.response.use(
     }
     // 业务错误码处理
     if (data.code && data.code !== 200) {
-      ElMessage.error(data.message || '请求失败')
-      return Promise.reject(new Error(data.message))
+      if (data.code === 401) {
+        ElMessage.error('登录已过期，请重新登录')
+        localStorage.removeItem('token')
+        localStorage.removeItem('userId')
+        localStorage.removeItem('username')
+        localStorage.removeItem('nickname')
+        window.location.href = '/login'
+      } else {
+        const url = response.config?.url || ''
+        ElMessage.error(`${data.message || '请求失败'} [${url}]`)
+      }
+      const err = new Error(data.message)
+      err.config = response.config
+      err.response = { data }
+      return Promise.reject(err)
     }
     return data
   },

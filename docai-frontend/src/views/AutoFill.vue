@@ -36,7 +36,7 @@
           <div class="selected-sources-header">
             <h4><el-icon><Document /></el-icon> 已选数据源文档（{{ selectedSourceDocs.length }}）</h4>
             <div class="selected-sources-actions">
-              <el-button size="small" type="primary" plain @click="openSourceDialog">
+              <el-button size="small" type="primary" @click="openSourceDialog">
                 <el-icon><UploadFilled /></el-icon> 继续选择
               </el-button>
               <el-button size="small" type="danger" plain :disabled="selectedSourceDocs.length === 0" @click="clearSelectedSources">清空已选</el-button>

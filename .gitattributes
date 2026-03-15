@@ -1,0 +1,11 @@
+# Ensure shell scripts always use LF line endings
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Docker/Nginx config files
+*.conf text eol=lf
+*.yml text eol=auto
+*.yaml text eol=auto
+
+# SQL files
+*.sql text eol=auto

@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { getDocuments, deleteDocument as apiDeleteDocument, batchDeleteDocuments as apiBatchDelete } from '../api'
+import { getSourceDocuments, deleteDocument as apiDeleteDocument, batchDeleteDocuments as apiBatchDelete } from '../api'
 import { ElMessage } from 'element-plus'
 
 const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
@@ -57,26 +57,29 @@ export const useDocumentStore = defineStore('documents', {
 
       this.loading = true
       try {
-        const res = await getDocuments()
+        const res = await getSourceDocuments()
         let docs = res.data || []
 
+        docs.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+
+        // allDocuments always stores the full unfiltered list
+        this.allDocuments = docs
+
+        // Apply filters for display
+        let filtered = docs
         if (params.keyword) {
           const keyword = params.keyword.trim().toLowerCase()
-          docs = docs.filter(d => (d.fileName || '').toLowerCase().includes(keyword))
+          filtered = filtered.filter(d => (d.fileName || '').toLowerCase().includes(keyword))
         }
-
         if (params.fileType) {
-          docs = docs.filter(d => d.fileType === params.fileType)
+          filtered = filtered.filter(d => d.fileType === params.fileType)
         }
-
-        docs.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
 
         const start = (params.page - 1) * params.size
         const end = start + params.size
 
-        this.allDocuments = docs
-        this.total = docs.length
-        this.documents = docs.slice(start, end)
+        this.total = filtered.length
+        this.documents = filtered.slice(start, end)
         this.lastLoaded = Date.now()
         this.lastFilters = params
         console.log('Fetched and updated documents.')
@@ -94,8 +97,10 @@ export const useDocumentStore = defineStore('documents', {
       const docIndex = this.documents.findIndex(d => d.id === docId)
       if (docIndex === -1) return
 
-      // Optimistically remove the document from the state
+      // Optimistically remove from both documents and allDocuments
       const removedDoc = this.documents.splice(docIndex, 1)[0]
+      const allIndex = this.allDocuments.findIndex(d => d.id === docId)
+      if (allIndex !== -1) this.allDocuments.splice(allIndex, 1)
       this.total -= 1
 
       try {
@@ -103,18 +108,20 @@ export const useDocumentStore = defineStore('documents', {
         ElMessage.success('删除成功')
       } catch (e) {
         this.documents.splice(docIndex, 0, removedDoc)
+        if (allIndex !== -1) this.allDocuments.splice(allIndex, 0, removedDoc)
         this.total += 1
         ElMessage.error('删除失败，请重试')
-        throw e // Re-throw for the component to know about the failure if needed
+        throw e
       }
     },
 
     // Action to delete multiple documents with optimistic UI
     async batchDeleteDocuments(docIds) {
       const originalDocs = [...this.documents]
+      const originalAll = [...this.allDocuments]
       const removedDocs = []
       
-      // Optimistically remove documents
+      // Optimistically remove from both lists
       this.documents = this.documents.filter(doc => {
         if (docIds.includes(doc.id)) {
           removedDocs.push(doc)
@@ -122,6 +129,7 @@ export const useDocumentStore = defineStore('documents', {
         }
         return true
       })
+      this.allDocuments = this.allDocuments.filter(doc => !docIds.includes(doc.id))
       const removedCount = removedDocs.length
       this.total -= removedCount
 
@@ -130,6 +138,7 @@ export const useDocumentStore = defineStore('documents', {
         ElMessage.success(`成功删除 ${removedCount} 个文档`)
       } catch (e) {
         this.documents = originalDocs
+        this.allDocuments = originalAll
         this.total += removedCount
         ElMessage.error('批量删除失败，请重试')
         throw e

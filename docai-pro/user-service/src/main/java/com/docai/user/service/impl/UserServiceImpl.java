@@ -172,7 +172,10 @@ public class UserServiceImpl implements UserService {
         if (user == null) {
             throw new IllegalArgumentException("用户不存在");
         }
-        if (user.getPasswordHash() != null && !passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
+        if (user.getPasswordHash() == null || user.getPasswordHash().isBlank()) {
+            throw new IllegalArgumentException("当前账户通过邮箱验证码注册，未设置密码，无法通过此方式修改密码");
+        }
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
             throw new IllegalArgumentException("当前密码不正确");
         }
 

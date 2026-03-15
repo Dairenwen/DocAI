@@ -27,7 +27,7 @@ public class ExtractionController {
 
     @PostMapping("/upload")
     public Result<SourceDocumentEntity> uploadAndExtract(
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestParam("file") MultipartFile file
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
@@ -38,7 +38,7 @@ public class ExtractionController {
 
     @GetMapping("/{docId}/fields")
     public Result<List<ExtractedFieldEntity>> getFields(
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long docId
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
@@ -48,7 +48,7 @@ public class ExtractionController {
 
     @GetMapping("/documents")
     public Result<List<SourceDocumentEntity>> getUserDocuments(
-            @RequestHeader("Authorization") String authorization
+            @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
         if (userId == null) return Result.badRequest("无效的令牌");
@@ -57,7 +57,7 @@ public class ExtractionController {
 
     @GetMapping("/{docId}")
     public Result<SourceDocumentEntity> getDocument(
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long docId
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
@@ -67,7 +67,7 @@ public class ExtractionController {
 
     @DeleteMapping("/{docId}")
     public Result<Boolean> deleteDocument(
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long docId
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
@@ -77,7 +77,7 @@ public class ExtractionController {
 
     @GetMapping("/{docId}/download")
     public void downloadSourceDocument(
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long docId,
             HttpServletResponse response
     ) {
@@ -129,7 +129,7 @@ public class ExtractionController {
 
     @DeleteMapping("/batch")
     public Result<Boolean> batchDeleteDocuments(
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody java.util.Map<String, java.util.List<Long>> body
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);

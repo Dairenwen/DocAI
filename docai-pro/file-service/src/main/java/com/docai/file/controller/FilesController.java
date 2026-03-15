@@ -42,7 +42,7 @@ public class FilesController {
     @LogOperation("文件上传")
     public Result<FileUploadResponse> uploadFile(
             @RequestParam("file")MultipartFile file,
-            @RequestHeader("Authorization")String authorization,
+            @RequestHeader(value = "Authorization", required = false)String authorization,
             @Valid FileUploadRequest request
             ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
@@ -58,7 +58,7 @@ public class FilesController {
     @GetMapping("/list")
     @LogOperation("文件列表查询")
     public Result<IPage<FileInfoResponse>> list(
-            @RequestHeader("Authorization")String authorization,
+            @RequestHeader(value = "Authorization", required = false)String authorization,
             @Valid FileListRequest request
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
@@ -75,7 +75,7 @@ public class FilesController {
     @GetMapping("/download")
     @LogOperation("文件下载")
     public void downloadFile(
-            @RequestHeader("Authorization")String authorization,
+            @RequestHeader(value = "Authorization", required = false)String authorization,
             @RequestParam("fileId") Long fileId,
             HttpServletResponse response
     ) {
@@ -99,7 +99,7 @@ public class FilesController {
     @LogOperation("Excel文件预览")
     public Result<ExcelPreviewResponse> previewExcel(
             @PathVariable Long fileId,
-            @RequestHeader("Authorization")String authorization,
+            @RequestHeader(value = "Authorization", required = false)String authorization,
             @Valid ExcelPreviewRequest excelPreviewRequest
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
@@ -121,7 +121,7 @@ public class FilesController {
     @LogOperation("Excel文件信息")
     public Result<ExcelPreviewResponse.ExcelInfo> getExcelInfo(
             @PathVariable Long fileId,
-            @RequestHeader("Authorization")String authorization
+            @RequestHeader(value = "Authorization", required = false)String authorization
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
         if (userId == null) {
@@ -135,7 +135,7 @@ public class FilesController {
     @LogOperation("一键复原excel数据")
     public Result<Boolean> restoreFileData(
             @PathVariable Long fileId,
-            @RequestHeader("Authorization")String authorization
+            @RequestHeader(value = "Authorization", required = false)String authorization
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
         if (userId == null) {
@@ -148,7 +148,7 @@ public class FilesController {
     @DeleteMapping("/delete")
     @LogOperation("文件删除")
     public Result<Boolean> deleteFiles(
-            @RequestHeader("Authorization")String authorization,
+            @RequestHeader(value = "Authorization", required = false)String authorization,
             @RequestBody @Valid FileDeleteRequest fileDeleteRequest
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);

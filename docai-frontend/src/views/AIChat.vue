@@ -80,7 +80,7 @@
             <h4>
               <el-icon :size="14"><ChatDotRound /></el-icon> 历史对话
             </h4>
-            <el-button size="small" type="primary" plain @click="createNewConversation">
+            <el-button size="small" type="primary" @click="createNewConversation()">
               <el-icon><Plus /></el-icon> 新对话
             </el-button>
           </div>
@@ -294,9 +294,19 @@
           <div class="input-actions">
             <span class="char-count" v-if="inputText.length > 0">{{ inputText.length }}</span>
             <el-button
+              v-if="loading || isStreaming"
+              type="danger"
+              circle
+              @click="stopGeneration"
+              class="stop-btn"
+            >
+              <el-icon><VideoPause /></el-icon>
+            </el-button>
+            <el-button
+              v-else
               type="primary"
               circle
-              :disabled="!inputText.trim() || loading || isStreaming"
+              :disabled="!inputText.trim()"
               @click="sendMessage"
               class="send-btn"
             >
@@ -377,15 +387,16 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { aiChat, getSourceDocuments, getExcelFiles, downloadExcelFile, downloadSourceDocument, downloadBlob, getLlmProviders, getCurrentLlmProvider, switchLlmProvider, sendAiResultEmail, sendContentEmail } from '../api'
+import { aiChat, getSourceDocuments, getExcelFiles, downloadExcelFile, downloadSourceDocument, downloadBlob, getLlmProviders, getCurrentLlmProvider, switchLlmProvider, sendAiResultEmail, sendContentEmail, listConversations, createConversation, updateConversation, deleteConversationApi, getConversationMessages, addConversationMessage } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Delete, Position, CopyDocument, Document, Download, Close, FolderOpened,
   DArrowLeft, DArrowRight, Link, Setting, Memo, Search, EditPen, SetUp,
-  DataAnalysis, Upload, ChatDotRound, Plus, Top, RefreshRight, Promotion, View, Message
+  DataAnalysis, Upload, ChatDotRound, Plus, Top, RefreshRight, Promotion, View, Message, VideoPause
 } from '@element-plus/icons-vue'
 import { marked } from 'marked'
-import { startTask, getTask, clearTask, subscribe as subscribeTask } from '../utils/chatTaskManager'
+import DOMPurify from 'dompurify'
+import { startTask, getTask, clearTask, abortTask, subscribe as subscribeTask } from '../utils/chatTaskManager'
 
 // Configure marked for safe rendering
 marked.setOptions({
@@ -415,6 +426,7 @@ const docList = ref([])
 const loadingDocList = ref(false)
 const lastAIContent = ref('')
 const isStreaming = ref(false)
+const sessionsLoading = ref(false)
 const showModelDialog = ref(false)
 const modelLoading = ref(false)
 const llmProviders = ref([])
@@ -432,8 +444,6 @@ let _unsubscribe = null
 const userId = localStorage.getItem('userId') || 'default'
 const nickname = localStorage.getItem('nickname') || '用户'
 const avatarChar = computed(() => nickname?.charAt(0) || 'U')
-const sessionStorageKey = computed(() => `docai_chat_sessions_${userId}`)
-const activeSessionStorageKey = computed(() => `docai_active_chat_session_${userId}`)
 const conversations = ref([])
 const activeConversationId = ref(null)
 const convoSearchKey = ref('')
@@ -478,7 +488,7 @@ const onProviderChange = () => {
 const createSession = (linkedDocId = null, linkedDocName = '') => {
   const now = new Date().toISOString()
   return {
-    id: `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    id: null, // Will be set after API call
     title: '新对话',
     pinned: false,
     createdAt: now,
@@ -492,7 +502,7 @@ const createSession = (linkedDocId = null, linkedDocName = '') => {
 const normalizeSession = (session) => {
   if (!session || typeof session !== 'object') return null
   return {
-    id: session.id || `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    id: session.id,
     title: typeof session.title === 'string' && session.title.trim() ? session.title.trim() : '新对话',
     pinned: Boolean(session.pinned),
     createdAt: session.createdAt || new Date().toISOString(),
@@ -504,33 +514,22 @@ const normalizeSession = (session) => {
 }
 
 const saveConversations = () => {
-  if (isStreaming.value) return
-  try {
-    localStorage.setItem(sessionStorageKey.value, JSON.stringify(conversations.value))
-    if (activeConversationId.value) {
-      localStorage.setItem(activeSessionStorageKey.value, activeConversationId.value)
-    }
-  } catch (e) {
-    console.warn('保存会话失败', e)
-  }
+  // No-op: conversations are now persisted server-side
 }
 
-const updateConversationMeta = (sessionId, patch = {}) => {
+const updateConversationMeta = async (sessionId, patch = {}) => {
   const target = conversations.value.find(item => item.id === sessionId)
   if (!target) return
   Object.assign(target, patch)
-  target.updatedAt = new Date().toISOString()
-  saveConversations()
+  try {
+    await updateConversation(sessionId, patch)
+  } catch (e) {
+    console.warn('更新会话失败', e)
+  }
 }
 
 const persistActiveMessages = () => {
-  const target = activeConversation.value
-  if (!target) return
-  target.messages = messages.value
-    .filter(m => !m._isWelcome)
-    .map(m => ({ role: m.role, content: m._fullContent || m.content }))
-  target.updatedAt = new Date().toISOString()
-  saveConversations()
+  // No-op: messages are persisted via addConversationMessage on send/receive
 }
 
 const generateConversationTitle = (text) => {
@@ -576,23 +575,40 @@ const buildWelcomeMessage = (doc) => {
 }
 
 const createNewConversation = async (linkedDocId = null, linkedDocName = '') => {
-  if (loading.value || isStreaming.value) {
-    ElMessage.warning('当前正在生成回复，请稍后再新建对话')
+  if (loading.value || isStreaming.value || sessionsLoading.value) {
+    ElMessage.warning('操作进行中，请稍后再试')
     return
   }
-  persistActiveMessages()
-  const newSession = createSession(linkedDocId, linkedDocName)
-  conversations.value.push(newSession)
-  activeConversationId.value = newSession.id
-  currentDoc.value = null
-  currentDocId.value = linkedDocId
-  if (linkedDocId) {
-    await loadDocument(linkedDocId)
-    updateConversationMeta(newSession.id, { linkedDocId, linkedDocName: currentDoc.value?.fileName || linkedDocName || '' })
+  try {
+    const res = await createConversation({
+      title: '新对话',
+      linkedDocId: linkedDocId || undefined,
+      linkedDocName: linkedDocName || undefined
+    })
+    if (!res || !res.data) {
+      throw new Error('服务器返回数据为空')
+    }
+    const newSession = normalizeSession(res.data)
+    if (!newSession || !newSession.id) {
+      throw new Error('返回的会话数据无效')
+    }
+    conversations.value.unshift(newSession)
+    activeConversationId.value = newSession.id
+    currentDoc.value = null
+    currentDocId.value = linkedDocId
+    if (linkedDocId) {
+      await loadDocument(linkedDocId)
+      await updateConversationMeta(newSession.id, { linkedDocId, linkedDocName: currentDoc.value?.fileName || linkedDocName || '' })
+    }
+    messages.value = [{ role: 'ai', content: buildWelcomeMessage(currentDoc.value), _isWelcome: true }]
+    lastAIContent.value = ''
+  } catch (e) {
+    const errMsg = e?.response?.data?.message || e?.message || '创建对话失败，请刷新页面后重试'
+    const errUrl = e?.config?.url || 'unknown'
+    const errMethod = e?.config?.method || 'unknown'
+    console.error('创建对话失败', errMsg, errUrl, errMethod, e)
+    ElMessage.error(`[${errMethod} ${errUrl}] ${errMsg}`)
   }
-  messages.value = [{ role: 'ai', content: buildWelcomeMessage(currentDoc.value), _isWelcome: true }]
-  lastAIContent.value = ''
-  saveConversations()
 }
 
 const switchConversation = async (sessionId) => {
@@ -601,20 +617,27 @@ const switchConversation = async (sessionId) => {
     return
   }
   if (sessionId === activeConversationId.value) return
-  persistActiveMessages()
   const target = conversations.value.find(item => item.id === sessionId)
   if (!target) return
   activeConversationId.value = sessionId
   currentDocId.value = parseDocId(target.linkedDocId)
   if (currentDocId.value) {
     await loadDocument(currentDocId.value)
-    updateConversationMeta(sessionId, { linkedDocName: currentDoc.value?.fileName || target.linkedDocName || '' })
   } else {
     currentDoc.value = null
   }
-  messages.value = target.messages?.length
-    ? target.messages.map(m => ({ role: m.role, content: m.content }))
-    : [{ role: 'ai', content: buildWelcomeMessage(currentDoc.value), _isWelcome: true }]
+  // Load messages from server
+  try {
+    const res = await getConversationMessages(sessionId)
+    const serverMsgs = res.data || []
+    if (serverMsgs.length > 0) {
+      messages.value = serverMsgs.map(m => ({ role: m.role, content: m.content }))
+    } else {
+      messages.value = [{ role: 'ai', content: buildWelcomeMessage(currentDoc.value), _isWelcome: true }]
+    }
+  } catch (e) {
+    messages.value = [{ role: 'ai', content: buildWelcomeMessage(currentDoc.value), _isWelcome: true }]
+  }
   lastAIContent.value = ''
   await scrollToBottom()
 }
@@ -630,9 +653,15 @@ const deleteConversation = async (session) => {
     return
   }
 
+  try {
+    await deleteConversationApi(session.id)
+  } catch (e) {
+    ElMessage.error('删除对话失败')
+    return
+  }
+
   const idx = conversations.value.findIndex(item => item.id === session.id)
-  if (idx === -1) return
-  conversations.value.splice(idx, 1)
+  if (idx !== -1) conversations.value.splice(idx, 1)
 
   if (activeConversationId.value === session.id) {
     if (conversations.value.length === 0) {
@@ -641,7 +670,6 @@ const deleteConversation = async (session) => {
       await switchConversation(sortedConversations.value[0].id)
     }
   }
-  saveConversations()
   ElMessage.success('已删除该对话')
 }
 
@@ -650,64 +678,91 @@ const togglePinConversation = (session) => {
 }
 
 const loadSessions = async () => {
-  let parsedSessions = []
+  sessionsLoading.value = true
   try {
-    const raw = localStorage.getItem(sessionStorageKey.value)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed)) {
-        parsedSessions = parsed.map(normalizeSession).filter(Boolean)
+    let parsedSessions = []
+    try {
+      const res = await listConversations()
+      const serverSessions = res.data || []
+      parsedSessions = serverSessions.map(normalizeSession).filter(Boolean)
+    } catch (e) {
+      console.warn('加载会话列表失败', e)
+    }
+
+    conversations.value = parsedSessions
+
+    const routeDocId = parseDocId(route.query.docId || route.query.fileId)
+    let targetSessionId = null
+    if (routeDocId) {
+      const matched = conversations.value.find(item => parseDocId(item.linkedDocId) === routeDocId)
+      if (matched) {
+        targetSessionId = matched.id
+      } else {
+        try {
+          const res = await createConversation({ linkedDocId: routeDocId })
+          const newSession = normalizeSession(res.data)
+          if (newSession && newSession.id) {
+            conversations.value.unshift(newSession)
+            targetSessionId = newSession.id
+          }
+        } catch (e) {
+          console.warn('创建关联对话失败', e)
+        }
       }
     }
-  } catch (e) {
-    console.warn('读取历史会话失败', e)
-  }
 
-  conversations.value = parsedSessions
-
-  const routeDocId = parseDocId(route.query.docId || route.query.fileId)
-  let targetSessionId = null
-  if (routeDocId) {
-    const matched = conversations.value.find(item => parseDocId(item.linkedDocId) === routeDocId)
-    if (matched) {
-      targetSessionId = matched.id
-    } else {
-      const s = createSession(routeDocId)
-      conversations.value.unshift(s)
-      targetSessionId = s.id
+    if (!targetSessionId) {
+      targetSessionId = conversations.value[0]?.id
     }
+
+    if (!targetSessionId) {
+      try {
+        const res = await createConversation({ title: '新对话' })
+        const newSession = normalizeSession(res.data)
+        if (newSession && newSession.id) {
+          conversations.value.push(newSession)
+          targetSessionId = newSession.id
+        }
+      } catch (e) {
+        console.warn('创建默认对话失败', e)
+        ElMessage.warning('会话初始化失败，请点击"新对话"按钮重试')
+      }
+    }
+
+    activeConversationId.value = targetSessionId
+    const active = conversations.value.find(item => item.id === targetSessionId)
+    currentDocId.value = parseDocId(active?.linkedDocId)
+    if (currentDocId.value) {
+      await loadDocument(currentDocId.value)
+    } else {
+      currentDoc.value = null
+    }
+
+    // Load messages from server
+    if (targetSessionId) {
+      try {
+        const res = await getConversationMessages(targetSessionId)
+        const serverMsgs = res.data || []
+        if (serverMsgs.length > 0) {
+          messages.value = serverMsgs.map(m => ({ role: m.role, content: m.content }))
+        } else {
+          messages.value = [{ role: 'ai', content: buildWelcomeMessage(currentDoc.value), _isWelcome: true }]
+        }
+      } catch (e) {
+        messages.value = [{ role: 'ai', content: buildWelcomeMessage(currentDoc.value), _isWelcome: true }]
+      }
+    } else {
+      messages.value = [{ role: 'ai', content: buildWelcomeMessage(currentDoc.value), _isWelcome: true }]
+    }
+
+    saveConversations()
+  } finally {
+    sessionsLoading.value = false
   }
-
-  if (!targetSessionId) {
-    const persistedActive = localStorage.getItem(activeSessionStorageKey.value)
-    const exists = conversations.value.some(item => item.id === persistedActive)
-    targetSessionId = exists ? persistedActive : conversations.value[0]?.id
-  }
-
-  if (!targetSessionId) {
-    const s = createSession()
-    conversations.value.push(s)
-    targetSessionId = s.id
-  }
-
-  activeConversationId.value = targetSessionId
-  const active = conversations.value.find(item => item.id === targetSessionId)
-  currentDocId.value = parseDocId(active?.linkedDocId)
-  if (currentDocId.value) {
-    await loadDocument(currentDocId.value)
-    updateConversationMeta(active.id, { linkedDocName: currentDoc.value?.fileName || active.linkedDocName || '' })
-  } else {
-    currentDoc.value = null
-  }
-
-  messages.value = active?.messages?.length
-    ? active.messages.map(m => ({ role: m.role, content: m.content }))
-    : [{ role: 'ai', content: buildWelcomeMessage(currentDoc.value), _isWelcome: true }]
-
-  saveConversations()
 }
 
 watch(messages, () => {
+  if (isStreaming.value) return
   persistActiveMessages()
 }, { deep: true })
 
@@ -859,6 +914,8 @@ const handleSwitchModel = async () => {
     currentModel.value = res.data?.currentModel || selectedModel.value
     showModelDialog.value = false
     ElMessage.success(`已切换到 ${currentProvider.value}:${currentModel.value}`)
+  } catch (e) {
+    // axios interceptor already shows error message
   } finally {
     modelLoading.value = false
   }
@@ -902,11 +959,17 @@ const submitPrompt = async (userMsg) => {
   if (isFirstUserMessage && activeConversationId.value && (activeConversation.value?.title || '新对话') === '新对话') {
     updateConversationMeta(activeConversationId.value, { title: generateConversationTitle(userMsg) })
   }
+
+  // Persist user message to server
+  if (activeConversationId.value) {
+    addConversationMessage(activeConversationId.value, { role: 'user', content: userMsg }).catch(() => {})
+  }
+
   loading.value = true
   await scrollToBottom()
 
   const linkedDocId = Number.isFinite(currentDocId.value) ? currentDocId.value : null
-  const task = startTask(() => requestAIChatWithFallback(userMsg, linkedDocId))
+  const task = startTask((abortController) => requestAIChatWithFallback(userMsg, linkedDocId, abortController.signal))
   attachToTask(task)
 }
 
@@ -917,6 +980,39 @@ const sendMessage = async () => {
   await submitPrompt(userMsg)
 }
 
+// 停止AI生成
+const stopGeneration = () => {
+  // Phase A: abort the backend fetch
+  abortTask()
+
+  // Phase B: stop typewriter animation, show content immediately
+  if (_streamingTimer) {
+    clearTimeout(_streamingTimer)
+    _streamingTimer = null
+  }
+  if (isStreaming.value) {
+    const streamingMsg = messages.value.find(m => m._streaming)
+    if (streamingMsg) {
+      const full = streamingMsg._fullContent || streamingMsg.content
+      streamingMsg.content = full
+      streamingMsg._streaming = false
+      delete streamingMsg._fullContent
+      lastAIContent.value = full
+      // Persist whatever we have
+      if (activeConversationId.value && full) {
+        addConversationMessage(activeConversationId.value, { role: 'ai', content: full }).catch(() => {})
+      }
+    }
+    isStreaming.value = false
+  }
+  loading.value = false
+  clearTask()
+  if (_unsubscribe) { _unsubscribe(); _unsubscribe = null }
+
+  // Remove the loading indicator message if present by just scrolling
+  scrollToBottom()
+}
+
 // 订阅后台AI任务结果
 const attachToTask = (task) => {
   if (_unsubscribe) { _unsubscribe(); _unsubscribe = null }
@@ -925,12 +1021,26 @@ const attachToTask = (task) => {
       loading.value = false
       const payload = typeof data === 'string' ? { reply: data } : (data || {})
       beginTypewriter(payload.reply || '', payload)
+    } else if (type === 'aborted') {
+      // User stopped generation during fetch phase
+      loading.value = false
+      clearTask()
+      messages.value.push({ role: 'ai', content: '已停止生成。', _isWelcome: true })
+      scrollToBottom()
     } else {
       loading.value = false
-      messages.value.push({
-        role: 'ai',
-        content: '抱歉，服务暂时繁忙，请稍后再试。如果问题持续，请检查网络连接或后端服务是否启动。'
-      })
+      const errMsg = data?.message || ''
+      let displayMsg
+      if (errMsg.includes('超时')) {
+        displayMsg = errMsg
+      } else if (errMsg.includes('Failed to fetch') || errMsg.includes('Network Error') || errMsg.includes('Load failed')) {
+        displayMsg = '网络连接失败，请检查后端服务是否启动或网络是否正常。'
+      } else if (errMsg.includes('429') || errMsg.includes('繁忙')) {
+        displayMsg = '服务繁忙，请稍后重试。'
+      } else {
+        displayMsg = '抱歉，服务暂时繁忙，请稍后再试。如果问题持续，请检查网络连接或后端服务是否启动。'
+      }
+      messages.value.push({ role: 'ai', content: displayMsg })
       clearTask()
       scrollToBottom()
     }
@@ -966,7 +1076,10 @@ const beginTypewriter = (fullText, payload = {}) => {
       lastAIContent.value = fullText
       _streamingTimer = null
       clearTask()
-      persistActiveMessages()
+      // Persist AI message to server
+      if (activeConversationId.value) {
+        addConversationMessage(activeConversationId.value, { role: 'ai', content: fullText }).catch(() => {})
+      }
       scrollToBottom()
       return
     }
@@ -985,16 +1098,17 @@ const isTransientChatError = (err) => {
   const status = err?.response?.status
   if (status === 429 || status === 503) return true
   const msg = err?.message || ''
-  return msg.includes('Network Error') || err?.code === 'ECONNABORTED'
+  if (msg.includes('Network Error') || msg.includes('Failed to fetch') || msg.includes('Load failed')) return true
+  return err?.code === 'ECONNABORTED' || err?.name === 'TypeError'
 }
 
-const sendChatOnce = async (message, documentId) => {
-  return aiChat({ message, documentId })
+const sendChatOnce = async (message, documentId, signal) => {
+  return aiChat({ message, documentId, signal })
 }
 
-const requestAIChatWithFallback = async (message, documentId) => {
+const requestAIChatWithFallback = async (message, documentId, signal) => {
   try {
-    return await sendChatOnce(message, documentId)
+    return await sendChatOnce(message, documentId, signal)
   } catch (err) {
     if (!isTransientChatError(err)) {
       throw err
@@ -1003,7 +1117,7 @@ const requestAIChatWithFallback = async (message, documentId) => {
 
   // 临时连接问题进行一次重试
   await sleep(700)
-  return await sendChatOnce(message, documentId)
+  return await sendChatOnce(message, documentId, signal)
 }
 
 const regenerateFromLastPrompt = async () => {
@@ -1111,7 +1225,7 @@ const saveToDocument = async (content) => {
   ElMessage.info('当前后端未提供文档回写接口，请使用导出功能保存结果')
 }
 
-const clearChat = () => {
+const clearChat = async () => {
   // 中止进行中的AI任务和打字动画
   if (_streamingTimer) { clearTimeout(_streamingTimer); _streamingTimer = null }
   isStreaming.value = false
@@ -1121,15 +1235,23 @@ const clearChat = () => {
 
   messages.value = []
   lastAIContent.value = ''
-  persistActiveMessages()
-  messages.value.push({
-    role: 'ai',
-    content: currentDoc.value
-      ? `对话已重置。请继续提问关于"${currentDoc.value.fileName}"的内容。`
-      : '对话已重置。请问有什么可以帮您？',
-    _isWelcome: true
-  })
-  persistActiveMessages()
+
+  // Delete old conversation and create a fresh one
+  if (activeConversationId.value) {
+    const oldLinkedDocId = currentDocId.value
+    const oldLinkedDocName = currentDoc.value?.fileName || ''
+    try {
+      await deleteConversationApi(activeConversationId.value)
+      conversations.value = conversations.value.filter(c => c.id !== activeConversationId.value)
+    } catch (e) { /* ignore */ }
+    await createNewConversation(oldLinkedDocId, oldLinkedDocName)
+  } else {
+    messages.value.push({
+      role: 'ai',
+      content: '对话已重置。请问有什么可以帮您？',
+      _isWelcome: true
+    })
+  }
 }
 
 const copyText = (text) => {
@@ -1148,7 +1270,7 @@ const copyText = (text) => {
 
 const renderMarkdown = (text) => {
   if (!text) return ''
-  return marked.parse(text)
+  return DOMPurify.sanitize(marked.parse(text))
 }
 
 const renderMessageContent = (msg) => {
@@ -1253,6 +1375,8 @@ const scrollToBottom = async () => {
 .input-actions { display: flex; align-items: center; gap: 8px; padding: 0 8px 4px 0; }
 .char-count { font-size: 11px; color: var(--text-muted); }
 .send-btn { width: 36px; height: 36px; }
+.stop-btn { width: 36px; height: 36px; animation: pulse-stop 1.5s ease-in-out infinite; }
+@keyframes pulse-stop { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
 .input-footer { text-align: center; padding: 8px 0 0 0; font-size: 11px; color: var(--text-muted); }
 .preview-body { max-height: 80vh; overflow-y: auto; line-height: 1.7; color: var(--text-primary); }
 .preview-body :deep(pre) { background: #1e1e2e; color: #cdd6f4; padding: 12px; border-radius: 8px; overflow-x: auto; }

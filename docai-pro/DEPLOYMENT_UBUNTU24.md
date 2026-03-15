@@ -22,7 +22,25 @@ cd docai-frontend
 export VITE_DEV_API_TARGET=http://124.222.53.34:8080
 ```
 
-### 2.2 OSS 凭据（禁止写入仓库）
+### 2.2 AI 模型密钥
+
+请通过环境变量注入 DashScope/DeepSeek 密钥：
+
+```bash
+export DOC_DASHSCOPE_API_KEY="<your-dashscope-api-key>"
+export DOC_DEEPSEEK_API_KEY="<your-deepseek-api-key>"
+```
+
+### 2.3 邮件服务（可选）
+
+```bash
+export DOC_SMTP_HOST="smtp.qq.com"
+export DOC_SMTP_PORT="587"
+export DOC_SMTP_USER="<your-email>"
+export DOC_SMTP_AUTH_CODE="<your-auth-code>"
+```
+
+### 2.4 OSS 凭据（可选，禁止写入仓库）
 
 请通过环境变量注入，不要把 AccessKey 写入 Git：
 
@@ -100,8 +118,9 @@ bash stop-lite.sh
 ## 7. 验证清单
 
 - 登录（验证码/密码）
-- 文件上传、预览、下载、删除
-- AI 助手流式对话
+- 文件上传、预览、下载、批量下载/删除
+- AI 助手流式对话（支持停止生成）
+- 对话历史持久化（跨浏览器/设备）
 - 信息提取：上传源文档 -> 查看抽取字段
 - 自动填表：上传模板 -> 解析槽位 -> 自动填表 -> 下载结果 -> 查看审计/决策
 

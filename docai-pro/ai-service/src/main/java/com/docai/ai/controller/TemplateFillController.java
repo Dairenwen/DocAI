@@ -34,7 +34,7 @@ public class TemplateFillController {
 
     @PostMapping("/upload")
     public Result<TemplateFileEntity> uploadTemplate(
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestParam("file") MultipartFile file
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
@@ -44,7 +44,7 @@ public class TemplateFillController {
 
     @PostMapping("/{templateId}/parse")
     public Result<List<TemplateSlotEntity>> parseSlots(
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long templateId
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
@@ -54,7 +54,7 @@ public class TemplateFillController {
 
     @PostMapping("/{templateId}/fill")
     public Result<Map<String, Object>> autoFill(
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long templateId,
             @RequestBody Map<String, List<Long>> body
     ) {
@@ -66,7 +66,7 @@ public class TemplateFillController {
 
     @GetMapping("/{templateId}/audit")
     public Result<List<FillAuditLogEntity>> getAuditLog(
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long templateId
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
@@ -76,7 +76,7 @@ public class TemplateFillController {
 
     @GetMapping("/{templateId}/decisions")
     public Result<List<FillDecisionEntity>> getDecisions(
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long templateId
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
@@ -86,7 +86,7 @@ public class TemplateFillController {
 
     @GetMapping("/list")
     public Result<List<TemplateFileEntity>> getUserTemplates(
-            @RequestHeader("Authorization") String authorization
+            @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
         if (userId == null) return Result.badRequest("无效的令牌");
@@ -95,7 +95,7 @@ public class TemplateFillController {
 
     @GetMapping("/{templateId}/download")
     public ResponseEntity<Resource> downloadResult(
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long templateId
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);

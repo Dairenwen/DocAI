@@ -7,18 +7,20 @@ let _currentTask = null
 
 /**
  * 创建并启动一个后台AI任务
- * @param {Function} apiCall - 返回Promise的API调用函数
+ * @param {Function} apiCall - 返回Promise的API调用函数，接收AbortController参数
  * @returns {object} task对象
  */
 export function startTask(apiCall) {
+  const abortController = new AbortController()
   const task = {
     status: 'pending',
     response: null,
     error: null,
+    abortController,
     _listeners: new Set()
   }
 
-  apiCall()
+  apiCall(abortController)
     .then(res => {
       const reply = res?.data?.reply || res?.reply || res?.data || res || ''
       task.status = 'completed'
@@ -27,14 +29,29 @@ export function startTask(apiCall) {
       task._listeners.clear()
     })
     .catch(err => {
-      task.status = 'error'
-      task.error = err
-      task._listeners.forEach(fn => fn('error', err))
-      task._listeners.clear()
+      if (err.name === 'AbortError' || abortController.signal.aborted) {
+        task.status = 'aborted'
+        task._listeners.forEach(fn => fn('aborted', null))
+        task._listeners.clear()
+      } else {
+        task.status = 'error'
+        task.error = err
+        task._listeners.forEach(fn => fn('error', err))
+        task._listeners.clear()
+      }
     })
 
   _currentTask = task
   return task
+}
+
+/**
+ * 中止当前任务
+ */
+export function abortTask() {
+  if (_currentTask && _currentTask.status === 'pending') {
+    _currentTask.abortController?.abort()
+  }
 }
 
 /**
@@ -66,6 +83,10 @@ export function subscribe(task, handler) {
   }
   if (task.status === 'error') {
     handler('error', task.error)
+    return () => {}
+  }
+  if (task.status === 'aborted') {
+    handler('aborted', null)
     return () => {}
   }
 

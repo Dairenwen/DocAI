@@ -28,7 +28,7 @@ public class LlmController {
     // 获取所有可用的大模型列表
     @GetMapping("/providers/list")
     public Result<List<Map<String, Object>>> getProvidersList(
-            @RequestHeader("Authorization") String authorization
+            @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
         if (userId == null) {
@@ -41,7 +41,7 @@ public class LlmController {
     // 切换大模型提供商
     @PostMapping("/providers/switch")
     public Result<Map<String, String>> switchProvider(
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody @Valid ProviderSwitchRequest request
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
@@ -54,7 +54,7 @@ public class LlmController {
     // 获取当前正在使用的大模型提供商
     @GetMapping("/providers/current")
     public Result<Map<String, String>> getCurrentProvider(
-            @RequestHeader("Authorization") String authorization
+            @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
         if (userId == null) {

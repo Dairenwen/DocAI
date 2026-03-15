@@ -228,8 +228,17 @@ const downloadWord = async () => {
 }
 
 const copyContent = () => {
-  navigator.clipboard.writeText(generatedContent.value)
-  ElMessage.success('已复制到剪贴板')
+  navigator.clipboard.writeText(generatedContent.value).then(() => {
+    ElMessage.success('已复制到剪贴板')
+  }).catch(() => {
+    const ta = document.createElement('textarea')
+    ta.value = generatedContent.value
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+    ElMessage.success('已复制到剪贴板')
+  })
 }
 </script>
 

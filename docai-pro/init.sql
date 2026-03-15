@@ -189,4 +189,35 @@ CREATE TABLE IF NOT EXISTS fill_audit_logs
     created_at          DATETIME    DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_audit_id (audit_id),
     INDEX idx_template_id (template_id)
-) COMMENT '填写审计日志�? CHARSET = utf8mb4 AUTO_INCREMENT = 10000001;
+) COMMENT '填写审计日志表' CHARSET = utf8mb4 AUTO_INCREMENT = 10000001;
+
+-- =====================================================
+-- 聊天会话与消息表
+-- =====================================================
+
+-- 聊天会话表
+CREATE TABLE IF NOT EXISTS chat_conversations
+(
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '会话ID',
+    user_id         BIGINT       NOT NULL COMMENT '用户ID',
+    title           VARCHAR(255) DEFAULT '新对话' COMMENT '会话标题',
+    linked_doc_id   BIGINT       DEFAULT NULL COMMENT '关联文档ID',
+    linked_doc_name VARCHAR(255) DEFAULT NULL COMMENT '关联文档名称',
+    pinned          TINYINT(1)   DEFAULT 0 COMMENT '是否置顶',
+    created_at      DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at      DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    INDEX idx_user_id (user_id),
+    INDEX idx_updated_at (updated_at)
+) COMMENT '聊天会话表' CHARSET = utf8mb4 AUTO_INCREMENT = 10000001;
+
+-- 聊天消息表
+CREATE TABLE IF NOT EXISTS chat_messages
+(
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '消息ID',
+    conversation_id BIGINT       NOT NULL COMMENT '会话ID',
+    role            VARCHAR(20)  NOT NULL COMMENT '角色：user/ai',
+    content         LONGTEXT COMMENT '消息内容',
+    created_at      DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    INDEX idx_conversation_id (conversation_id),
+    CONSTRAINT fk_chat_msg_conv FOREIGN KEY (conversation_id) REFERENCES chat_conversations(id) ON DELETE CASCADE
+) COMMENT '聊天消息表' CHARSET = utf8mb4 AUTO_INCREMENT = 10000001;

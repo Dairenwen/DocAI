@@ -1,6 +1,7 @@
 package com.docai.common.config;
 
 import com.docai.common.util.Result;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -22,7 +23,8 @@ public class GlobalExceptionHandler {
      * @return  客户端400报错
      */
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    public Result<Void> handleJsonException(HttpMessageNotReadableException e) {
+    public Result<Void> handleJsonException(HttpMessageNotReadableException e, HttpServletRequest request) {
+        log.error("请求格式错误 [{} {}]: {}", request.getMethod(), request.getRequestURI(), e.getMessage());
         return Result.badRequest("请求格式错误");
     }
 

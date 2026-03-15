@@ -57,6 +57,13 @@ Content-Type: application/json
 }
 ```
 
+**错误响应**
+
+| code | 说明 |
+|------|------|
+| 400 | 用户名与密码不匹配 |
+| 400 | 请求参数错误（缺少必填字段） |
+
 ### 1.2 发送邮箱验证码 🔓
 
 ```
@@ -121,6 +128,17 @@ Content-Type: application/json
 | currentPassword | String | ✅ | 当前密码 |
 | newPassword | String | ✅ | 新密码（6-64位） |
 | confirmPassword | String | ✅ | 确认密码（须与新密码一致） |
+
+> 注意：通过邮箱验证码注册的用户未设置密码，调用此接口会返回 400 错误提示"当前账户通过邮箱验证码注册，未设置密码，无法通过此方式修改密码"。此类用户若需设置密码，请先使用邮箱重置密码功能。
+
+**可能的错误响应（HTTP 400）**
+
+| 错误信息 | 说明 |
+|---------|------|
+| 当前密码不正确 | currentPassword 与数据库中的密码不匹配 |
+| 新密码与确认密码不一致 | newPassword 与 confirmPassword 不同 |
+| 新旧密码不能相同 | newPassword 与 currentPassword 相同 |
+| 当前账户通过邮箱验证码注册，未设置密码，无法通过此方式修改密码 | 邮箱注册用户未设置密码 |
 
 ### 1.5 邮箱重置密码 🔓
 
@@ -724,7 +742,7 @@ function request(options) {
         'Authorization': token ? `Bearer ${token}` : ''
       },
       success(res) {
-        if (res.statusCode === 401) {
+        if (res.statusCode === 401 || (res.data && res.data.code === 401)) {
           wx.removeStorageSync('token')
           wx.navigateTo({ url: '/pages/login/login' })
           reject(new Error('登录已过期'))
@@ -786,11 +804,22 @@ function uploadFile(filePath) {
 | 格式 | 渲染方式 | 依赖库 |
 |------|----------|--------|
 | `.txt` | `<pre>` 原文展示 | 无 |
-| `.md` | Markdown 渲染（GFM） | marked |
-| `.xlsx` | HTML 表格渲染 | SheetJS (xlsx) |
-| `.docx` | HTML 富文本渲染 | mammoth |
+| `.md` | Markdown 渲染（GFM） | marked + DOMPurify |
+| `.xlsx` | HTML 表格渲染 | SheetJS (xlsx) + DOMPurify |
+| `.docx` | HTML 富文本渲染 | mammoth + DOMPurify |
 
-预览窗口宽度为 85vw，高度自适应（最大 80vh 滚动）。
+预览窗口宽度为 85vw，高度自适应（最大 80vh 滚动）。所有 HTML 渲染内容均经过 DOMPurify 消毒以防 XSS。
+
+### 10.3 文档批量操作
+
+工具栏提供批量操作按钮（勾选文档后激活）：
+
+| 操作 | 说明 |
+|------|------|
+| 下载已选 | 逐个下载所有已勾选文档的原始文件 |
+| 删除已选 | 调用批量删除 API 一次性删除多个文档及其关联提取字段 |
+
+选中数量实时显示在统计信息栏和按钮上。
 
 ### 10.2 AI 智能对话 - 文档编辑
 
@@ -816,3 +845,33 @@ function uploadFile(filePath) {
 - **导出文档**：下载为 .txt 或 .md 文件
 - **发送至邮箱**：将 AI 结果发送到指定邮箱
 - **保存到文档**：保存回文档（需后端支持）
+
+### 10.4 对话会话管理 API
+
+所有接口需携带 `Authorization: Bearer <token>` 请求头。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/ai/conversations` | 获取当前用户的所有对话（按置顶、更新时间排序） |
+| POST | `/api/v1/ai/conversations` | 创建新对话 |
+| PUT | `/api/v1/ai/conversations/{id}` | 更新对话元信息（标题、置顶、关联文档等） |
+| DELETE | `/api/v1/ai/conversations/{id}` | 删除对话（级联删除所有消息） |
+| GET | `/api/v1/ai/conversations/{id}/messages` | 获取对话的所有消息 |
+| POST | `/api/v1/ai/conversations/{id}/messages` | 添加消息到对话（同时更新对话 updatedAt） |
+
+**创建对话请求体（可选，支持空 body）：**
+```json
+{ "title": "新对话", "linkedDocId": null, "linkedDocName": "" }
+```
+> 注：请求体为空时将创建默认标题为 "新对话" 的对话。
+
+**添加消息请求体：**
+```json
+{ "role": "user", "content": "用户消息内容" }
+```
+
+### 10.5 停止生成功能
+
+AI 对话过程中，用户可随时点击停止按钮中止生成：
+- **请求阶段**：通过 AbortController 中止 SSE 流式请求
+- **打字动画阶段**：立即停止动画，展示已接收内容并持久化保存
