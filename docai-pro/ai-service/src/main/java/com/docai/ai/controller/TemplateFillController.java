@@ -39,7 +39,11 @@ public class TemplateFillController {
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
         if (userId == null) return Result.badRequest("无效的令牌");
-        return Result.success("模板上传成功", templateFillService.uploadTemplate(file, userId));
+        try {
+            return Result.success("模板上传成功", templateFillService.uploadTemplate(file, userId));
+        } catch (RuntimeException e) {
+            return Result.badRequest(e.getMessage());
+        }
     }
 
     @PostMapping("/{templateId}/parse")
@@ -49,19 +53,27 @@ public class TemplateFillController {
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
         if (userId == null) return Result.badRequest("无效的令牌");
-        return Result.success("模板解析成功", templateFillService.parseSlots(templateId));
+        try {
+            return Result.success("模板解析成功", templateFillService.parseSlots(templateId));
+        } catch (RuntimeException e) {
+            return Result.badRequest("模板解析失败: " + e.getMessage());
+        }
     }
 
     @PostMapping("/{templateId}/fill")
     public Result<Map<String, Object>> autoFill(
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long templateId,
-            @RequestBody Map<String, List<Long>> body
+            @RequestBody(required = false) Map<String, List<Long>> body
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
         if (userId == null) return Result.badRequest("无效的令牌");
-        List<Long> docIds = body.get("docIds");
-        return Result.success("自动填表完成", templateFillService.autoFill(templateId, docIds, userId));
+        List<Long> docIds = body != null ? body.get("docIds") : null;
+        try {
+            return Result.success("自动填表完成", templateFillService.autoFill(templateId, docIds, userId));
+        } catch (RuntimeException e) {
+            return Result.badRequest(e.getMessage());
+        }
     }
 
     @GetMapping("/{templateId}/audit")

@@ -30,6 +30,10 @@
             <el-icon color="#E65100"><WarningFilled /></el-icon>
             <span>暂无已提取数据的文档，请先前往文档管理页面上传并提取文档内容</span>
           </div>
+          <div v-if="!loadingStats && parsingCount > 0" class="source-warning" style="background: #FFF8E1; border-color: #FFE082;">
+            <el-icon color="#F57C00"><WarningFilled /></el-icon>
+            <span>有 {{ parsingCount }} 个文档正在提取中，提取完成后即可用作数据源</span>
+          </div>
         </div>
 
         <div class="selected-sources" v-if="effectiveSourceCount > 0 || selectedSourceDocs.length > 0">
@@ -117,7 +121,7 @@
 
         <div class="select-summary">
           <span>已选择 <strong>{{ templateFiles.length }}</strong> 个模板文件，数据源 <strong>{{ effectiveSourceCount }}</strong> 个文档</span>
-          <el-button type="primary" :disabled="templateFiles.length === 0 || effectiveSourceCount === 0" @click="startFill">
+          <el-button type="primary" :disabled="templateFiles.length === 0" @click="startFill">
             <el-icon><MagicStick /></el-icon> 开始智能填充
           </el-button>
         </div>
@@ -346,7 +350,7 @@ import {
   getTemplateDecisions,
   downloadBlob
 } from '../api'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   UploadFilled, MagicStick, Download, InfoFilled, WarningFilled, RefreshRight,
   Document, SuccessFilled, CircleCloseFilled
@@ -401,6 +405,10 @@ const fillTimeDisplay = computed(() => {
 
 const availableSourceDocs = computed(() => {
   return (docStore.allDocuments || []).filter((doc) => doc.uploadStatus === 'parsed')
+})
+
+const parsingCount = computed(() => {
+  return (docStore.allDocuments || []).filter((doc) => doc.uploadStatus === 'parsing').length
 })
 
 const sourceDocMap = computed(() => {
@@ -565,6 +573,19 @@ const handlePanelDrop = (event) => {
 }
 
 const startFill = async () => {
+  // 用户未选择数据源时弹出确认
+  if (selectedSourceDocIds.value.length === 0) {
+    try {
+      await ElMessageBox.confirm(
+        '您尚未选择具体的数据源文档，系统将使用所有已解析的文档进行匹配，填充准确率可能会受到影响。建议先选择与模板相关的数据源文档。',
+        '未选择数据源',
+        { confirmButtonText: '继续填充', cancelButtonText: '去选择数据源', type: 'warning' }
+      )
+    } catch {
+      return // 用户取消
+    }
+  }
+
   currentStep.value = 1
   fillProgress.value = 0
   fillPhase.value = 0
@@ -597,15 +618,33 @@ const startFill = async () => {
         throw new Error('模板上传失败，未返回 templateId')
       }
 
-      await parseTemplateSlots(templateId)
-      await fillTemplate(templateId, docIds)
-      collectedTemplateIds.push(templateId)
-      const fileRes = await downloadTemplateResult(templateId)
+      const parseRes = await parseTemplateSlots(templateId)
+      // 检查解析结果
+      if (parseRes.code && parseRes.code !== 200) {
+        throw new Error(parseRes.message || '模板解析失败')
+      }
 
-      finishedFiles.push({
-        name: `filled_${tpl.name}`,
-        blob: fileRes.data
-      })
+      const fillRes = await fillTemplate(templateId, docIds)
+      // 检查填表结果
+      if (fillRes.code && fillRes.code !== 200) {
+        throw new Error(fillRes.message || '自动填表失败')
+      }
+
+      collectedTemplateIds.push(templateId)
+
+      // 仅当填表成功且有输出文件时尝试下载
+      if (fillRes.data?.outputFile) {
+        try {
+          const fileRes = await downloadTemplateResult(templateId)
+          finishedFiles.push({
+            name: `filled_${tpl.name}`,
+            blob: fileRes.data
+          })
+        } catch (downloadErr) {
+          console.warn('下载填充结果失败:', downloadErr)
+          // 不因下载失败而中断整个流程
+        }
+      }
 
       fillProgress.value = Math.max(fillProgress.value, ((i + 1) / templateFiles.value.length) * 95)
     }
@@ -617,7 +656,7 @@ const startFill = async () => {
 
     fillTimeMs.value = Date.now() - startedAt
     resultFiles.value = finishedFiles
-    fillResult.value = finishedFiles[0]?.blob || null
+    fillResult.value = finishedFiles[0]?.blob || true // 标记成功即使没有文件
     templateIdsForDecisions.value = collectedTemplateIds
 
     // Load fill decisions for result analysis
@@ -627,13 +666,15 @@ const startFill = async () => {
 
   } catch (e) {
     clearInterval(progressTimer)
-    // Blob响应无法直接读取message，需要解析
+    // 解析Blob错误 / 提取具体错误信息
     let errMsg = e.message || '填充失败，请重试'
     if (e.response?.data instanceof Blob) {
       try { errMsg = await e.response.data.text() } catch (_) {}
     } else if (e.response?.data?.message) {
       errMsg = e.response.data.message
     }
+    // 清理常见错误前缀
+    errMsg = errMsg.replace(/^请求参数错误:\s*/, '')
     fillError.value = errMsg
     fillProgress.value = 0
     currentStep.value = 2
@@ -672,6 +713,11 @@ const loadDecisions = async (templateIds) => {
     }
   }
   decisionList.value = allDecisions
+  // 结果加载完成后渲染图表
+  if (allDecisions.length > 0) {
+    await nextTick()
+    renderCharts()
+  }
 }
 
 const renderCharts = async () => {

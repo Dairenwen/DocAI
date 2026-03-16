@@ -106,7 +106,7 @@ stop_java_by_jar "gateway-service-1.0.0.jar"
 sleep 1
 
 cd "$ROOT_DIR"
-mvn -DskipTests package
+mvn -DskipTests clean package
 echo "[OK] Backend build complete"
 
 # ---------- [3/6] Build frontend ----------
@@ -128,7 +128,7 @@ cp -r "$FRONTEND_ROOT/dist/"* "$TARGET_DIST/"
 # ---------- [5/6] Start middleware ----------
 echo "[5/6] Start middleware containers"
 cd "$DEPLOY_DIR"
-docker compose -f "$COMPOSE_FILE" up -d
+docker compose -p docai -f "$COMPOSE_FILE" up -d
 echo "[OK] Middleware containers started"
 
 # Detect actual MySQL host port

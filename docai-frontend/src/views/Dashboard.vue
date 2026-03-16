@@ -175,7 +175,7 @@
     <div class="advantages-grid">
       <div class="advantage-card" v-for="adv in advantages" :key="adv.title">
         <div class="adv-icon" :style="{ background: adv.bg }">
-          <span>{{ adv.emoji }}</span>
+          <el-icon :size="22" :color="adv.color"><component :is="adv.icon" /></el-icon>
         </div>
         <h5>{{ adv.title }}</h5>
         <p>{{ adv.desc }}</p>
@@ -350,12 +350,12 @@ const workflow = [
 ]
 
 const advantages = [
-  { emoji: '⚡', title: '效率倍增', desc: '原本数小时的文档处理工作，AI 自动完成只需几分钟，效率提升数十倍', bg: '#EEF2FF' },
-  { emoji: '🎯', title: '精准提取', desc: '基于大语言模型的深度理解，精准识别文档中的关键字段和实体信息', bg: '#ECFDF5' },
-  { emoji: '🔄', title: '批量处理', desc: '支持一次上传多个模板，系统自动批量匹配填充并打包下载', bg: '#FEF3C7' },
-  { emoji: '📝', title: '智能写作', desc: '支持通知、报告、请示等 8 种公文类型，一键生成规范文档', bg: '#FEE2E2' },
-  { emoji: '💬', title: 'AI 对话', desc: '与文档深度交互，通过自然语言进行分析、润色、提问和编辑', bg: '#F3E8FF' },
-  { emoji: '🔒', title: '安全可靠', desc: '企业级微服务架构，JWT 认证，数据加密传输，保障文档安全', bg: '#DBEAFE' },
+  { icon: 'Setting', title: '效率倍增', desc: '原本数小时的文档处理工作，AI 自动完成只需几分钟，效率提升数十倍', bg: '#EEF2FF', color: '#4F46E5' },
+  { icon: 'Search', title: '精准提取', desc: '基于大语言模型的深度理解，精准识别文档中的关键字段和实体信息', bg: '#ECFDF5', color: '#10B981' },
+  { icon: 'Grid', title: '批量处理', desc: '支持一次上传多个模板，系统自动批量匹配填充并打包下载', bg: '#FEF3C7', color: '#D97706' },
+  { icon: 'EditPen', title: '智能写作', desc: '支持通知、报告、请示等 8 种公文类型，一键生成规范文档', bg: '#FEE2E2', color: '#DC2626' },
+  { icon: 'ChatDotRound', title: 'AI 对话', desc: '与文档深度交互，通过自然语言进行分析、润色、提问和编辑', bg: '#F3E8FF', color: '#7C3AED' },
+  { icon: 'Setting', title: '安全可靠', desc: '企业级微服务架构，JWT 认证，数据加密传输，保障文档安全', bg: '#DBEAFE', color: '#2563EB' },
 ]
 
 const comparisons = [

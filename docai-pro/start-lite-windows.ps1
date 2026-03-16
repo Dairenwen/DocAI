@@ -108,6 +108,23 @@ function Stop-JavaProcessByJar([string]$jarPath) {
     }
 }
 
+function Stop-ProcessByPort([int]$port, [string]$serviceName) {
+    $listeners = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue
+    if (-not $listeners) {
+        return
+    }
+
+    $pids = $listeners | Select-Object -ExpandProperty OwningProcess -Unique
+    foreach ($processId in $pids) {
+        try {
+            Write-Host "[INFO] Stop stale process on port $port for $serviceName (PID $processId)"
+            Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+        } catch {
+            # Best effort cleanup for stale process by port.
+        }
+    }
+}
+
 function Start-JavaService([string]$name, [string]$jarPath, [int]$port, [string]$xmx, [string[]]$extraArgs = @(), [string[]]$jvmArgs = @()) {
     if (Test-PortListening $port) {
         Write-Host "[SKIP] $name already running on $port"
@@ -153,9 +170,13 @@ Stop-JavaProcessByJar (Join-Path $root 'user-service\target\user-service-1.0.0.j
 Stop-JavaProcessByJar (Join-Path $root 'file-service\target\file-service-1.0.0-exec.jar')
 Stop-JavaProcessByJar (Join-Path $root 'ai-service\target\ai-service-1.0.0.jar')
 Stop-JavaProcessByJar (Join-Path $root 'gateway-service\target\gateway-service-1.0.0.jar')
+Stop-ProcessByPort -port 9001 -serviceName 'user-service'
+Stop-ProcessByPort -port 9003 -serviceName 'file-service'
+Stop-ProcessByPort -port 9002 -serviceName 'ai-service'
+Stop-ProcessByPort -port 18080 -serviceName 'gateway-service'
 Start-Sleep -Seconds 1
 Push-Location $root
-mvn -DskipTests package
+mvn -DskipTests clean package
 Assert-LastExit 'Backend build'
 Pop-Location
 

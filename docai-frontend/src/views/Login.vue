@@ -59,22 +59,8 @@
             <div class="bf-item">
               <div class="bf-dot"></div>
               <div class="bf-text">
-                <span class="bf-main">表格一键填写</span>
+                <span class="bf-main">表格智能填写</span>
                 <span class="bf-desc">智能匹配数据，批量填充模板并导出</span>
-              </div>
-            </div>
-            <div class="bf-item">
-              <div class="bf-dot"></div>
-              <div class="bf-text">
-                <span class="bf-main">智能写作生成</span>
-                <span class="bf-desc">支持通知、报告、请示等公文一键生成</span>
-              </div>
-            </div>
-            <div class="bf-item">
-              <div class="bf-dot"></div>
-              <div class="bf-text">
-                <span class="bf-main">多格式兼容</span>
-                <span class="bf-desc">支持 Word、Excel、TXT、Markdown 等格式</span>
               </div>
             </div>
           </div>
@@ -821,8 +807,8 @@ const handleRegister = async () => {
 .brand-features {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  margin-bottom: 28px;
+  gap: 16px;
+  margin-bottom: 24px;
 }
 
 .bf-item {
@@ -895,14 +881,15 @@ const handleRegister = async () => {
 /* Right form panel */
 .auth-form-panel {
   flex: 1;
-  padding: 28px 44px;
+  padding: 32px 44px;
   display: flex;
   flex-direction: column;
   justify-content: center;
+  gap: 0;
 }
 
 .form-header {
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .form-header h2 {
@@ -932,7 +919,7 @@ const handleRegister = async () => {
 }
 
 .auth-form {
-  margin-bottom: 10px;
+  margin-bottom: 6px;
 }
 
 .auth-form :deep(.el-form-item) {

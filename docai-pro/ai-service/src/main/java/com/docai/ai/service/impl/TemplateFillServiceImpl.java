@@ -59,22 +59,26 @@ public class TemplateFillServiceImpl implements TemplateFillService {
             throw new RuntimeException("仅支持xlsx和docx格式的模板文件");
         }
 
+        // 先将文件保存到本地，避免 MultipartFile 流被多次消费
+        Path tempDir;
+        Path savedPath;
+        try {
+            tempDir = Files.createTempDirectory("docai_template_");
+            savedPath = tempDir.resolve(originalFilename);
+            try (var is = file.getInputStream()) {
+                Files.copy(is, savedPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("文件保存失败: " + e.getMessage());
+        }
+
+        // 文件已落盘后再上传OSS
         String ossKey = "";
         try {
             String fileUrl = ossService.uploadFile(file, "template_files/");
             ossKey = getOssKey(fileUrl);
         } catch (Exception ex) {
             log.warn("模板上传OSS失败，继续使用本地路径: {}", ex.getMessage());
-        }
-
-        Path tempDir;
-        Path savedPath;
-        try {
-            tempDir = Files.createTempDirectory("docai_template_");
-            savedPath = tempDir.resolve(originalFilename);
-            file.transferTo(savedPath.toFile());
-        } catch (IOException e) {
-            throw new RuntimeException("文件保存失败: " + e.getMessage());
         }
 
         TemplateFileEntity tpl = new TemplateFileEntity();
@@ -129,6 +133,7 @@ public class TemplateFillServiceImpl implements TemplateFillService {
 
             for (TemplateSlotEntity slot : slots) {
                 templateSlotMapper.insert(slot);
+                log.info("解析槽位: label={}, position={}, type={}, slotType={}", slot.getLabel(), slot.getPosition(), slot.getExpectedType(), slot.getSlotType());
             }
 
             tpl.setParseStatus("parsed");
@@ -155,19 +160,30 @@ public class TemplateFillServiceImpl implements TemplateFillService {
         );
         if (slots.isEmpty()) throw new RuntimeException("模板未解析槽位，请先解析");
 
-        // 获取所有候选字段（仅当前用户的文档）
+        // 获取所有候选字段（仅当前用户的已解析文档）
         List<ExtractedFieldEntity> allFields;
         if (docIds != null && !docIds.isEmpty()) {
-            // 验证docIds都属于当前用户
+            // 验证docIds都属于当前用户，且只使用已解析完成的文档
             List<SourceDocumentEntity> userDocs = sourceDocumentMapper.selectList(
                     new LambdaQueryWrapper<SourceDocumentEntity>()
                             .eq(SourceDocumentEntity::getUserId, userId)
                             .in(SourceDocumentEntity::getId, docIds)
+                            .eq(SourceDocumentEntity::getUploadStatus, "parsed")
             );
-            List<Long> validDocIds = userDocs.stream().map(SourceDocumentEntity::getId).toList();
-            if (validDocIds.isEmpty()) {
-                throw new RuntimeException("未找到有效的数据源文档");
+            if (userDocs.isEmpty()) {
+                // 检查是否存在但还在解析中的文档
+                long parsingCount = sourceDocumentMapper.selectCount(
+                        new LambdaQueryWrapper<SourceDocumentEntity>()
+                                .eq(SourceDocumentEntity::getUserId, userId)
+                                .in(SourceDocumentEntity::getId, docIds)
+                                .eq(SourceDocumentEntity::getUploadStatus, "parsing")
+                );
+                if (parsingCount > 0) {
+                    throw new RuntimeException("所选文档仍在提取中，请等待提取完成后再执行填表操作");
+                }
+                throw new RuntimeException("未找到有效的已提取数据源文档");
             }
+            List<Long> validDocIds = userDocs.stream().map(SourceDocumentEntity::getId).toList();
             allFields = extractedFieldMapper.selectList(
                     new LambdaQueryWrapper<ExtractedFieldEntity>().in(ExtractedFieldEntity::getDocId, validDocIds)
             );
@@ -178,13 +194,26 @@ public class TemplateFillServiceImpl implements TemplateFillService {
                             .eq(SourceDocumentEntity::getUserId, userId)
                             .eq(SourceDocumentEntity::getUploadStatus, "parsed")
             );
-            List<Long> userDocIds = userDocs.stream().map(SourceDocumentEntity::getId).toList();
-            if (userDocIds.isEmpty()) {
-                throw new RuntimeException("当前用户没有已提取的源文档数据");
+            if (userDocs.isEmpty()) {
+                // 检查是否存在但还在解析中的文档
+                long parsingCount = sourceDocumentMapper.selectCount(
+                        new LambdaQueryWrapper<SourceDocumentEntity>()
+                                .eq(SourceDocumentEntity::getUserId, userId)
+                                .eq(SourceDocumentEntity::getUploadStatus, "parsing")
+                );
+                if (parsingCount > 0) {
+                    throw new RuntimeException("所有文档仍在提取中（" + parsingCount + "个），请等待提取完成后再执行填表操作");
+                }
+                throw new RuntimeException("当前用户没有已提取的源文档数据，请先在文档管理页面上传并提取文档");
             }
+            List<Long> userDocIds = userDocs.stream().map(SourceDocumentEntity::getId).toList();
             allFields = extractedFieldMapper.selectList(
                     new LambdaQueryWrapper<ExtractedFieldEntity>().in(ExtractedFieldEntity::getDocId, userDocIds)
             );
+        }
+
+        if (allFields.isEmpty()) {
+            throw new RuntimeException("数据源文档中未提取到任何字段信息，无法进行自动填表");
         }
 
         // 获取别名词典
@@ -196,22 +225,39 @@ public class TemplateFillServiceImpl implements TemplateFillService {
 
         // 生成审计批次ID
         String auditId = "audit_" + templateId + "_" + System.currentTimeMillis();
+        long fillStartTime = System.currentTimeMillis();
+        long maxFillTimeMs = 50_000; // 50秒上限，给写回和网络留余量
 
         // 对每个槽位进行候选召回和决策
+        log.info("开始填表: templateId={}, 槽位数={}, 候选字段数={}, 别名词典数={}", templateId, slots.size(), allFields.size(), aliasDict.size());
+        for (ExtractedFieldEntity f : allFields) {
+            log.info("  候选字段: key={}, name={}, value={}, type={}", f.getFieldKey(), f.getFieldName(), f.getFieldValue(), f.getFieldType());
+        }
         List<FillDecisionEntity> decisions = new ArrayList<>();
         List<FillAuditLogEntity> auditLogs = new ArrayList<>();
         int filledCount = 0;
         int blankCount = 0;
 
         for (TemplateSlotEntity slot : slots) {
+            log.info("处理槽位: id={}, label={}, type={}, position={}", slot.getId(), slot.getLabel(), slot.getExpectedType(), slot.getPosition());
             // 阶段4：候选召回
             List<CandidateResult> candidates = recallCandidates(slot, allFields, aliasDict);
+            log.info("  候选召回结果: {}个候选", candidates.size());
+            for (CandidateResult cr : candidates) {
+                log.info("    候选: fieldKey={}, fieldName={}, value={}, score={}, alias={}, type={}, vote={}", 
+                    cr.field.getFieldKey(), cr.field.getFieldName(), cr.field.getFieldValue(),
+                    String.format("%.4f", cr.score), String.format("%.2f", cr.aliasScore),
+                    String.format("%.2f", cr.typeScore), String.format("%.2f", cr.voteScore));
+            }
 
-            // 阶段5：难例判定
-            FillDecisionEntity decision = makeDecision(slot, candidates);
+            // 阶段5：难例判定（超时则跳过LLM）
+            boolean timeExceeded = (System.currentTimeMillis() - fillStartTime) > maxFillTimeMs;
+            FillDecisionEntity decision = makeDecision(slot, candidates, timeExceeded);
 
             // 阶段6：置信度融合
             applyConfidenceThreshold(decision);
+            log.info("  决策结果: label={}, value={}, confidence={}, mode={}", 
+                decision.getSlotLabel(), decision.getFinalValue(), decision.getFinalConfidence(), decision.getDecisionMode());
 
             decision.setTemplateId(templateId);
             decision.setAuditId(auditId);
@@ -233,12 +279,153 @@ public class TemplateFillServiceImpl implements TemplateFillService {
             auditLogs.add(auditLog);
         }
 
+        // 兜底：如果所有决策都为空，尝试贪心直接匹配（通过normalizeLabel对齐）
+        if (filledCount == 0 && !allFields.isEmpty()) {
+            log.warn("所有槽位均未匹配到数据，启用贪心匹配兜底");
+            Map<String, ExtractedFieldEntity> fieldByKey = new HashMap<>();
+            Map<String, ExtractedFieldEntity> fieldByName = new HashMap<>();
+            for (ExtractedFieldEntity f : allFields) {
+                if (f.getFieldValue() != null && !f.getFieldValue().trim().isEmpty()) {
+                    if (f.getFieldKey() != null) fieldByKey.putIfAbsent(f.getFieldKey(), f);
+                    if (f.getFieldName() != null) fieldByName.putIfAbsent(f.getFieldName().trim().toLowerCase(), f);
+                }
+            }
+            for (int i = 0; i < slots.size(); i++) {
+                TemplateSlotEntity slot = slots.get(i);
+                FillDecisionEntity decision = decisions.get(i);
+                if (decision.getFinalValue() != null && !decision.getFinalValue().isEmpty()) continue;
+                
+                String label = slot.getLabel().trim();
+                String labelStd = normalizeLabel(label);
+                ExtractedFieldEntity matched = fieldByKey.get(labelStd);
+                if (matched == null) matched = fieldByName.get(label.toLowerCase());
+                if (matched == null) {
+                    // 尝试模糊包含匹配
+                    for (ExtractedFieldEntity f : allFields) {
+                        if (f.getFieldValue() != null && !f.getFieldValue().trim().isEmpty() && f.getFieldName() != null) {
+                            String fn = f.getFieldName().trim();
+                            if (label.contains(fn) || fn.contains(label)) {
+                                matched = f;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (matched != null) {
+                    decision.setFinalValue(matched.getFieldValue());
+                    decision.setFinalConfidence(new BigDecimal("0.50"));
+                    decision.setDecisionMode("greedy_fallback");
+                    decision.setReason("贪心兜底匹配: " + matched.getFieldName() + " -> " + matched.getFieldValue());
+                    fillDecisionMapper.updateById(decision);
+                    filledCount++;
+                    blankCount--;
+                    log.info("贪心兜底: slot={} -> field={}, value={}", label, matched.getFieldName(), matched.getFieldValue());
+                }
+            }
+        }
+
+        log.info("填表完成: templateId={}, filled={}, blank={}, total={}", templateId, filledCount, blankCount, slots.size());
+
+        // 终极兜底：如果贪心匹配后仍有大量空白，使用LLM从源文档直接提取
+        if (filledCount == 0 && !allFields.isEmpty()) {
+            log.warn("贪心匹配后仍全部为空，启用LLM终极兜底");
+            try {
+                StringBuilder sourceContent = new StringBuilder();
+                for (ExtractedFieldEntity f : allFields) {
+                    if (f.getSourceText() != null && !f.getSourceText().isBlank()) {
+                        sourceContent.append(f.getSourceText()).append("\n");
+                    }
+                    if (f.getFieldName() != null && f.getFieldValue() != null) {
+                        sourceContent.append(f.getFieldName()).append(": ").append(f.getFieldValue()).append("\n");
+                    }
+                }
+                if (sourceContent.length() < 100) {
+                    List<Long> fieldDocIds = allFields.stream().map(ExtractedFieldEntity::getDocId).distinct().toList();
+                    for (Long did : fieldDocIds) {
+                        SourceDocumentEntity srcDoc = sourceDocumentMapper.selectById(did);
+                        if (srcDoc != null && srcDoc.getStoragePath() != null) {
+                            try {
+                                String text = java.nio.file.Files.readString(Path.of(srcDoc.getStoragePath()), java.nio.charset.StandardCharsets.UTF_8);
+                                if (text.length() > 5000) text = text.substring(0, 5000);
+                                sourceContent.append(text).append("\n");
+                            } catch (Exception ignored) {}
+                        }
+                    }
+                }
+                String content = sourceContent.toString();
+                if (content.length() > 8000) content = content.substring(0, 8000);
+                StringBuilder slotLabels = new StringBuilder();
+                List<Integer> blankIndices = new ArrayList<>();
+                for (int i = 0; i < slots.size(); i++) {
+                    FillDecisionEntity d = decisions.get(i);
+                    if (d.getFinalValue() == null || d.getFinalValue().isEmpty()) {
+                        slotLabels.append("- ").append(slots.get(i).getLabel()).append("\n");
+                        blankIndices.add(i);
+                    }
+                }
+                String llmPrompt = "请根据以下数据源内容，提取指定字段的值。\n\n数据源内容：\n" + content +
+                    "\n\n需要提取的字段：\n" + slotLabels +
+                    "\n请以JSON格式返回，key为字段名，value为从数据源中提取到的值。如果找不到对应内容则value为空字符串。" +
+                    "\n只返回JSON，不要任何其他文字。示例：{\"项目名称\":\"xxx\",\"负责人\":\"xxx\"}";
+                String llmResp = llmService.generateText(llmPrompt);
+                if (llmResp != null && !llmResp.isBlank()) {
+                    String jsonStr = extractJsonFromResponse(llmResp);
+                    JSONObject llmResult = JSON.parseObject(jsonStr);
+                    if (llmResult != null) {
+                        for (int idx : blankIndices) {
+                            TemplateSlotEntity slot = slots.get(idx);
+                            FillDecisionEntity decision = decisions.get(idx);
+                            String label = slot.getLabel().trim();
+                            String val = llmResult.getString(label);
+                            if (val == null || val.isBlank()) {
+                                for (String key : llmResult.keySet()) {
+                                    if (key.contains(label) || label.contains(key)) {
+                                        val = llmResult.getString(key);
+                                        break;
+                                    }
+                                }
+                            }
+                            if (val != null && !val.isBlank()) {
+                                decision.setFinalValue(val);
+                                decision.setFinalConfidence(new BigDecimal("0.65"));
+                                decision.setDecisionMode("llm_fallback");
+                                decision.setReason("LLM终极兜底提取");
+                                fillDecisionMapper.updateById(decision);
+                                filledCount++;
+                                blankCount--;
+                                log.info("LLM兜底: slot={}, value={}", label, val);
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("LLM终极兜底失败: {}", e.getMessage());
+            }
+        }
+
+        log.info("最终填表结果: templateId={}, filled={}, blank={}, total={}", templateId, filledCount, blankCount, slots.size());
+
         // 阶段7：模板写回
         String outputPath = null;
         try {
-            outputPath = writeBack(tpl, slots, decisions);
+            // 收集header_below槽位的源文档路径，用于直接表格数据复制
+            List<String> sourceExcelPaths = new ArrayList<>();
+            boolean hasHeaderBelowSlots = slots.stream().anyMatch(s -> "header_below".equals(s.getSlotType()));
+            if (hasHeaderBelowSlots) {
+                List<Long> fieldDocIds = allFields.stream().map(ExtractedFieldEntity::getDocId).distinct().toList();
+                for (Long did : fieldDocIds) {
+                    SourceDocumentEntity srcDoc = sourceDocumentMapper.selectById(did);
+                    if (srcDoc != null && srcDoc.getStoragePath() != null
+                            && (srcDoc.getStoragePath().endsWith(".xlsx") || srcDoc.getStoragePath().endsWith(".xls") || srcDoc.getStoragePath().endsWith(".csv"))) {
+                        sourceExcelPaths.add(srcDoc.getStoragePath());
+                    }
+                }
+            }
+            outputPath = writeBack(tpl, slots, decisions, sourceExcelPaths);
         } catch (Exception e) {
             log.error("模板写回失败: {}", e.getMessage(), e);
+            // 即使写回失败也返回结果，只是无法下载
+            outputPath = null;
         }
 
         Map<String, Object> result = new LinkedHashMap<>();
@@ -248,7 +435,7 @@ public class TemplateFillServiceImpl implements TemplateFillService {
         result.put("blankCount", blankCount);
         result.put("totalSlots", slots.size());
         result.put("auditId", auditId);
-        result.put("auditLogs", auditLogs);
+        result.put("decisions", decisions);
 
         return result;
     }
@@ -306,6 +493,9 @@ public class TemplateFillServiceImpl implements TemplateFillService {
                 XSSFSheet sheet = workbook.getSheetAt(s);
                 String sheetName = sheet.getSheetName();
 
+                // 记录每行已通过规则1/2/3产生的slot列号，避免表头检测重复
+                Set<String> slottedPositions = new HashSet<>();
+
                 for (int r = 0; r <= sheet.getLastRowNum(); r++) {
                     XSSFRow row = sheet.getRow(r);
                     if (row == null) continue;
@@ -319,34 +509,83 @@ public class TemplateFillServiceImpl implements TemplateFillService {
 
                         // 判断是否为标签（非空、长度适中、不是大段文字）
                         if (isLabelCell(cellValue)) {
+                            boolean slotAdded = false;
                             // 规则1: 右边为空 → 槽位在右边
                             XSSFCell rightCell = row.getCell(c + 1);
-                            if (rightCell != null && getCellStringValue(rightCell).isEmpty()) {
+                            if (rightCell == null || getCellStringValue(rightCell).isEmpty()) {
                                 TemplateSlotEntity slot = buildSlot(templateId, sheetName, r, c + 1, cellValue, guessType(cellValue));
                                 slots.add(slot);
-                                continue;
-                            }
-                            if (rightCell == null && c + 1 < row.getLastCellNum()) {
-                                TemplateSlotEntity slot = buildSlot(templateId, sheetName, r, c + 1, cellValue, guessType(cellValue));
-                                slots.add(slot);
-                                continue;
+                                slotAdded = true;
+                                slottedPositions.add(sheetName + "!" + r + "!" + (c + 1));
                             }
 
-                            // 规则2: 下面为空 → 槽位在下面
-                            XSSFRow nextRow = sheet.getRow(r + 1);
-                            if (nextRow != null) {
-                                XSSFCell belowCell = nextRow.getCell(c);
-                                if (belowCell != null && getCellStringValue(belowCell).isEmpty()) {
-                                    TemplateSlotEntity slot = buildSlot(templateId, sheetName, r + 1, c, cellValue, guessType(cellValue));
-                                    slots.add(slot);
+                            // 规则2: 下面为空 → 槽位在下面 (only if no right slot found)
+                            if (!slotAdded) {
+                                XSSFRow nextRow = sheet.getRow(r + 1);
+                                if (nextRow != null) {
+                                    XSSFCell belowCell = nextRow.getCell(c);
+                                    if (belowCell == null || getCellStringValue(belowCell).isEmpty()) {
+                                        TemplateSlotEntity slot = buildSlot(templateId, sheetName, r + 1, c, cellValue, guessType(cellValue));
+                                        slots.add(slot);
+                                        slotAdded = true;
+                                        slottedPositions.add(sheetName + "!" + (r + 1) + "!" + c);
+                                    }
                                 }
                             }
 
                             // 规则3: 包含"：____"或": ____"
-                            if (cellValue.matches(".*[：:]\\s*[_\\s]*$")) {
+                            if (!slotAdded && cellValue.matches(".*[：:]\\s*[_\\s]*$")) {
                                 TemplateSlotEntity slot = buildSlot(templateId, sheetName, r, c, cellValue.replaceAll("[：:].*", "").trim(), guessType(cellValue));
                                 slot.setSlotType("inline");
                                 slots.add(slot);
+                                slottedPositions.add(sheetName + "!" + r + "!" + c);
+                            }
+                        }
+                    }
+                }
+
+                // 规则4: 表头行检测 — 整行大部分为标签且下方行为空或不存在
+                for (int r = 0; r <= sheet.getLastRowNum(); r++) {
+                    XSSFRow row = sheet.getRow(r);
+                    if (row == null) continue;
+                    int nonEmptyCells = 0;
+                    int labelCells = 0;
+                    List<Integer> headerCols = new ArrayList<>();
+                    List<String> headerLabels = new ArrayList<>();
+                    for (int c = 0; c < row.getLastCellNum(); c++) {
+                        XSSFCell cell = row.getCell(c);
+                        if (cell == null) continue;
+                        String val = getCellStringValue(cell);
+                        if (val.isEmpty()) continue;
+                        nonEmptyCells++;
+                        if (isLabelCell(val)) {
+                            labelCells++;
+                            headerCols.add(c);
+                            headerLabels.add(val);
+                        }
+                    }
+                    // 至少2个标签单元格且超过一半是标签→认定为表头行
+                    if (labelCells >= 2 && labelCells >= nonEmptyCells * 0.5) {
+                        int targetRow = r + 1; // 数据应填入表头下一行
+                        XSSFRow dataRow = sheet.getRow(targetRow);
+                        for (int i = 0; i < headerCols.size(); i++) {
+                            int c = headerCols.get(i);
+                            String posKey = sheetName + "!" + targetRow + "!" + c;
+                            if (slottedPositions.contains(posKey)) continue; // 已有slot
+                            // 检查目标单元格是否为空（可填）
+                            boolean targetEmpty = true;
+                            if (dataRow != null) {
+                                XSSFCell targetCell = dataRow.getCell(c);
+                                if (targetCell != null && !getCellStringValue(targetCell).isEmpty()) {
+                                    targetEmpty = false;
+                                }
+                            }
+                            if (targetEmpty) {
+                                TemplateSlotEntity slot = buildSlot(templateId, sheetName, targetRow, c, headerLabels.get(i), guessType(headerLabels.get(i)));
+                                slot.setSlotType("header_below");
+                                slots.add(slot);
+                                slottedPositions.add(posKey);
+                                log.info("表头行检测: sheet={}, headerRow={}, label={}, targetPos=[{},{}]", sheetName, r, headerLabels.get(i), targetRow, c);
                             }
                         }
                     }
@@ -450,25 +689,54 @@ public class TemplateFillServiceImpl implements TemplateFillService {
             double confScore = field.getConfidence() != null ? field.getConfidence().doubleValue() : 0.5;
 
             // 1. 别名匹配
+            String fieldNameNorm = field.getFieldName() != null ? normalizeLabel(field.getFieldName().trim()) : "";
             if (slotLabel.equals(field.getFieldName()) || slotLabelStd.equals(field.getFieldKey())) {
                 aliasScore = 1.0;
+            } else if (field.getFieldName() != null && slotLabel.equalsIgnoreCase(field.getFieldName().trim())) {
+                aliasScore = 1.0;
+            } else if (!slotLabelStd.equals(slotLabel.toLowerCase()) && slotLabelStd.equals(fieldNameNorm)) {
+                // 两者通过normalizeLabel映射到同一标准key
+                aliasScore = 0.95;
             } else {
                 // 检查别名词典
                 for (Map.Entry<String, List<String>> entry : aliasDict.entrySet()) {
                     if (entry.getValue().contains(slotLabel) && entry.getKey().equals(field.getFieldKey())) {
-                        aliasScore = 0.9;
+                        aliasScore = 0.95;
                         break;
                     }
                     if (entry.getValue().stream().anyMatch(a -> slotLabel.contains(a) || a.contains(slotLabel))
                             && entry.getKey().equals(field.getFieldKey())) {
-                        aliasScore = 0.7;
+                        aliasScore = 0.80;
                         break;
+                    }
+                    // 检查别名与字段名的交叉匹配
+                    if (field.getFieldName() != null && entry.getValue().stream().anyMatch(a ->
+                            field.getFieldName().contains(a) || a.contains(field.getFieldName()))
+                            && entry.getValue().stream().anyMatch(a ->
+                            slotLabel.contains(a) || a.contains(slotLabel))) {
+                        aliasScore = 0.75;
+                        break;
+                    }
+                }
+                // 内置别名映射匹配
+                if (aliasScore == 0.0) {
+                    String slotStd = normalizeLabel(slotLabel);
+                    String fieldStd = field.getFieldKey() != null ? field.getFieldKey() : normalizeLabel(field.getFieldName() != null ? field.getFieldName() : "");
+                    if (!slotStd.equals(slotLabel.toLowerCase()) && slotStd.equals(fieldStd)) {
+                        aliasScore = 0.90;
                     }
                 }
                 // 模糊匹配
                 if (aliasScore == 0.0 && field.getFieldName() != null) {
-                    if (slotLabel.contains(field.getFieldName()) || field.getFieldName().contains(slotLabel)) {
-                        aliasScore = 0.5;
+                    String fn = field.getFieldName().trim();
+                    if (slotLabel.contains(fn) || fn.contains(slotLabel)) {
+                        aliasScore = 0.60;
+                    } else {
+                        // 部分字符重叠匹配
+                        int overlap = countOverlapChars(slotLabel, fn);
+                        if (overlap >= 2 && overlap >= Math.min(slotLabel.length(), fn.length()) * 0.5) {
+                            aliasScore = 0.40;
+                        }
                     }
                 }
             }
@@ -500,7 +768,7 @@ public class TemplateFillServiceImpl implements TemplateFillService {
             // 计算综合得分
             double score = 0.40 * aliasScore + 0.20 * typeScore + 0.20 * voteScore + 0.10 * contextScore + 0.10 * confScore;
 
-            if (score > 0.1) { // 过低分数不纳入候选
+            if (score > 0.01) { // 极低阈值，尽量保留候选
                 CandidateResult cr = new CandidateResult();
                 cr.field = field;
                 cr.score = score;
@@ -524,7 +792,7 @@ public class TemplateFillServiceImpl implements TemplateFillService {
 
     // ===== 阶段5：难例判定 =====
 
-    private FillDecisionEntity makeDecision(TemplateSlotEntity slot, List<CandidateResult> candidates) {
+    private FillDecisionEntity makeDecision(TemplateSlotEntity slot, List<CandidateResult> candidates, boolean skipLlm) {
         FillDecisionEntity decision = new FillDecisionEntity();
         decision.setSlotId(slot.getId().toString());
         decision.setSlotLabel(slot.getLabel());
@@ -543,21 +811,14 @@ public class TemplateFillServiceImpl implements TemplateFillService {
         // 判定是否需要调用LLM
         if (candidates.size() >= 2) {
             CandidateResult top2 = candidates.get(1);
-            // 条件1: Top1和Top2分差 < 0.15
-            if (top1.score - top2.score < 0.15) needLlm = true;
-            // 条件3: 候选值类型冲突
-            if (top1.field.getFieldType() != null && top2.field.getFieldType() != null
-                    && !top1.field.getFieldType().equals(top2.field.getFieldType())) needLlm = true;
-            // 条件4: 多文档不同值
-            if (!Objects.equals(top1.field.getFieldValue(), top2.field.getFieldValue())
-                    && top1.score - top2.score < 0.20) needLlm = true;
+            // 条件1: Top1和Top2分差 < 0.08 且候选值不同
+            if (top1.score - top2.score < 0.08
+                    && !Objects.equals(top1.field.getFieldValue(), top2.field.getFieldValue())) needLlm = true;
         }
-        // 条件2: Top1分数 < 0.75
-        if (top1.score < 0.75) needLlm = true;
-        // 条件5: 别名词典没命中
-        if (top1.aliasScore < 0.5) needLlm = true;
+        // 条件2: Top1分数太低且别名完全没命中
+        if (top1.score < 0.40 && top1.aliasScore < 0.3) needLlm = true;
 
-        if (needLlm) {
+        if (needLlm && !skipLlm) {
             try {
                 LlmJudgment judgment = callLlmJudge(slot, candidates);
                 if (judgment != null && judgment.selectedValue != null) {
@@ -589,11 +850,11 @@ public class TemplateFillServiceImpl implements TemplateFillService {
 
     private void applyConfidenceThreshold(FillDecisionEntity decision) {
         double conf = decision.getFinalConfidence() != null ? decision.getFinalConfidence().doubleValue() : 0;
-        if (conf < 0.70) {
+        if (conf < 0.10) {
             decision.setFinalValue(""); // 拒填
             decision.setDecisionMode("fallback_blank");
-            decision.setReason(decision.getReason() + " [置信度=" + String.format("%.2f", conf) + " < 0.70, 拒填]");
-        } else if (conf < 0.85) {
+            decision.setReason(decision.getReason() + " [置信度=" + String.format("%.2f", conf) + " < 0.10, 拒填]");
+        } else if (conf < 0.70) {
             decision.setReason(decision.getReason() + " [置信度=" + String.format("%.2f", conf) + ", 建议人工复核]");
         }
     }
@@ -659,7 +920,7 @@ public class TemplateFillServiceImpl implements TemplateFillService {
 
     // ===== 阶段7：模板写回 =====
 
-    private String writeBack(TemplateFileEntity tpl, List<TemplateSlotEntity> slots, List<FillDecisionEntity> decisions) throws Exception {
+    private String writeBack(TemplateFileEntity tpl, List<TemplateSlotEntity> slots, List<FillDecisionEntity> decisions, List<String> sourceExcelPaths) throws Exception {
         // 构建slotId -> decision的映射（使用slotId避免label重复冲突）
         Map<String, FillDecisionEntity> decisionMap = new HashMap<>();
         for (FillDecisionEntity d : decisions) {
@@ -668,7 +929,7 @@ public class TemplateFillServiceImpl implements TemplateFillService {
 
         String outputPath;
         if ("xlsx".equals(tpl.getTemplateType())) {
-            outputPath = writeBackExcel(tpl.getStoragePath(), slots, decisionMap);
+            outputPath = writeBackExcel(tpl.getStoragePath(), slots, decisionMap, sourceExcelPaths);
         } else {
             outputPath = writeBackWord(tpl.getStoragePath(), slots, decisionMap);
         }
@@ -679,14 +940,39 @@ public class TemplateFillServiceImpl implements TemplateFillService {
         return outputPath;
     }
 
-    private String writeBackExcel(String templatePath, List<TemplateSlotEntity> slots, Map<String, FillDecisionEntity> decisionMap) throws Exception {
-        String outputPath = templatePath.replace(".", "_filled.");
+    private String writeBackExcel(String templatePath, List<TemplateSlotEntity> slots, Map<String, FillDecisionEntity> decisionMap, List<String> sourceExcelPaths) throws Exception {
+        // 只替换最后一个点（文件扩展名前）
+        int lastDot = templatePath.lastIndexOf('.');
+        String outputPath = lastDot > 0
+                ? templatePath.substring(0, lastDot) + "_filled" + templatePath.substring(lastDot)
+                : templatePath + "_filled";
+        
+        log.info("Excel写回: 模板={}, 输出={}, 槽位数={}, 决策数={}", templatePath, outputPath, slots.size(), decisionMap.size());
+        
         try (FileInputStream fis = new FileInputStream(templatePath);
              XSSFWorkbook workbook = new XSSFWorkbook(fis)) {
 
+            // 检测是否有header_below槽位且有匹配的源Excel可以直接复制
+            List<TemplateSlotEntity> headerSlots = slots.stream()
+                    .filter(s -> "header_below".equals(s.getSlotType()))
+                    .collect(Collectors.toList());
+            boolean directCopyDone = false;
+
+            if (!headerSlots.isEmpty() && sourceExcelPaths != null && !sourceExcelPaths.isEmpty()) {
+                directCopyDone = directTableCopy(workbook, headerSlots, sourceExcelPaths);
+            }
+
+            // 写入单值决策（对于非header_below槽位，或直接复制失败的情况）
+            int writtenCount = 0;
             for (TemplateSlotEntity slot : slots) {
+                // 如果是header_below且已直接复制成功，跳过单值写入
+                if (directCopyDone && "header_below".equals(slot.getSlotType())) continue;
+
                 FillDecisionEntity decision = decisionMap.get(slot.getId().toString());
-                if (decision == null || decision.getFinalValue() == null || decision.getFinalValue().isEmpty()) continue;
+                if (decision == null || decision.getFinalValue() == null || decision.getFinalValue().isEmpty()) {
+                    log.debug("跳过槽位 {}: decision={}", slot.getLabel(), decision != null ? decision.getDecisionMode() : "null");
+                    continue;
+                }
 
                 JSONObject pos = JSON.parseObject(slot.getPosition());
                 String sheetName = pos.getString("sheet");
@@ -706,14 +992,16 @@ public class TemplateFillServiceImpl implements TemplateFillService {
                 if (cell.getCellType() == CellType.FORMULA) continue;
 
                 if ("inline".equals(slot.getSlotType())) {
-                    // 内联模式：在现有文本后追加值
                     String existing = getCellStringValue(cell);
                     cell.setCellValue(existing + decision.getFinalValue());
                 } else {
                     cell.setCellValue(decision.getFinalValue());
                 }
+                writtenCount++;
+                log.info("写入单元格: sheet={}, row={}, col={}, label={}, value={}", sheetName, row, col, slot.getLabel(), decision.getFinalValue());
             }
 
+            log.info("Excel写回完成: 共写入{}个单元格到 {}, 直接表格复制={}", writtenCount, outputPath, directCopyDone);
             try (FileOutputStream fos = new FileOutputStream(outputPath)) {
                 workbook.write(fos);
             }
@@ -721,8 +1009,104 @@ public class TemplateFillServiceImpl implements TemplateFillService {
         return outputPath;
     }
 
+    /**
+     * 直接从源Excel复制数据行到模板。
+     * 匹配模板header标签与源Excel表头，然后将所有数据行复制到模板中。
+     */
+    private boolean directTableCopy(XSSFWorkbook templateWorkbook, List<TemplateSlotEntity> headerSlots, List<String> sourceExcelPaths) {
+        // 提取header slot的标签和目标位置
+        // headerSlots 同一sheet，同一targetRow，不同col
+        if (headerSlots.isEmpty()) return false;
+        JSONObject firstPos = JSON.parseObject(headerSlots.get(0).getPosition());
+        String targetSheetName = firstPos.getString("sheet");
+        int targetStartRow = firstPos.getIntValue("row");
+
+        XSSFSheet targetSheet = templateWorkbook.getSheet(targetSheetName);
+        if (targetSheet == null) return false;
+
+        // 构建 label -> col 映射
+        Map<String, Integer> labelToCol = new LinkedHashMap<>();
+        for (TemplateSlotEntity slot : headerSlots) {
+            JSONObject p = JSON.parseObject(slot.getPosition());
+            labelToCol.put(slot.getLabel().trim(), p.getIntValue("col"));
+        }
+
+        int totalCopied = 0;
+        for (String srcPath : sourceExcelPaths) {
+            try (FileInputStream srcFis = new FileInputStream(srcPath);
+                 XSSFWorkbook srcWorkbook = new XSSFWorkbook(srcFis)) {
+
+                for (int si = 0; si < srcWorkbook.getNumberOfSheets(); si++) {
+                    XSSFSheet srcSheet = srcWorkbook.getSheetAt(si);
+                    if (srcSheet.getLastRowNum() < 1) continue; // 至少需要表头+1行数据
+
+                    // 读取源表头
+                    XSSFRow srcHeaderRow = srcSheet.getRow(0);
+                    if (srcHeaderRow == null) continue;
+
+                    // 匹配列: 模板label → 源列index
+                    Map<Integer, Integer> colMapping = new LinkedHashMap<>(); // targetCol -> srcCol
+                    for (int c = 0; c < srcHeaderRow.getLastCellNum(); c++) {
+                        XSSFCell hCell = srcHeaderRow.getCell(c);
+                        if (hCell == null) continue;
+                        String hVal = getCellStringValue(hCell).trim();
+                        if (hVal.isEmpty()) continue;
+                        // 精确或模糊匹配
+                        for (Map.Entry<String, Integer> entry : labelToCol.entrySet()) {
+                            String tplLabel = entry.getKey();
+                            if (tplLabel.equalsIgnoreCase(hVal)
+                                    || tplLabel.contains(hVal) || hVal.contains(tplLabel)
+                                    || normalizeLabel(tplLabel).equals(normalizeLabel(hVal))) {
+                                colMapping.put(entry.getValue(), c);
+                                break;
+                            }
+                        }
+                    }
+
+                    if (colMapping.isEmpty()) continue;
+                    log.info("直接表格复制: 源={}, sheet={}, 匹配列数={}/{}, 数据行数={}",
+                            srcPath, srcSheet.getSheetName(), colMapping.size(), labelToCol.size(), srcSheet.getLastRowNum());
+
+                    // 复制数据行
+                    for (int r = 1; r <= srcSheet.getLastRowNum(); r++) {
+                        XSSFRow srcRow = srcSheet.getRow(r);
+                        if (srcRow == null) continue;
+
+                        int destRowIdx = targetStartRow + totalCopied;
+                        XSSFRow destRow = targetSheet.getRow(destRowIdx);
+                        if (destRow == null) destRow = targetSheet.createRow(destRowIdx);
+
+                        boolean hasData = false;
+                        for (Map.Entry<Integer, Integer> cm : colMapping.entrySet()) {
+                            int destCol = cm.getKey();
+                            int srcCol = cm.getValue();
+                            XSSFCell srcCell = srcRow.getCell(srcCol);
+                            if (srcCell == null) continue;
+                            String val = getCellStringValue(srcCell);
+                            if (val.isEmpty()) continue;
+
+                            XSSFCell destCell = destRow.getCell(destCol);
+                            if (destCell == null) destCell = destRow.createCell(destCol);
+                            destCell.setCellValue(val);
+                            hasData = true;
+                        }
+                        if (hasData) totalCopied++;
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("直接表格复制失败(源={}): {}", srcPath, e.getMessage());
+            }
+        }
+
+        log.info("直接表格复制完成: 共复制{}行数据到sheet={}, 从row={}开始", totalCopied, targetSheetName, targetStartRow);
+        return totalCopied > 0;
+    }
+
     private String writeBackWord(String templatePath, List<TemplateSlotEntity> slots, Map<String, FillDecisionEntity> decisionMap) throws Exception {
-        String outputPath = templatePath.replace(".", "_filled.");
+        int lastDot = templatePath.lastIndexOf('.');
+        String outputPath = lastDot > 0
+                ? templatePath.substring(0, lastDot) + "_filled" + templatePath.substring(lastDot)
+                : templatePath + "_filled";
         try (FileInputStream fis = new FileInputStream(templatePath);
              XWPFDocument doc = new XWPFDocument(fis)) {
 
@@ -821,13 +1205,13 @@ public class TemplateFillServiceImpl implements TemplateFillService {
         if (value == null || value.isEmpty()) return false;
         value = value.trim();
         // 过长（大段文字）不作为标签
-        if (value.length() > 20) return false;
+        if (value.length() > 50) return false;
         // 过短
-        if (value.length() < 2) return false;
+        if (value.length() < 1) return false;
         // 排除纯数字
         if (value.matches("^[\\d.]+$")) return false;
         // 排除说明/备注等内容
-        if (value.contains("说明") || value.contains("填写要求") || value.contains("请注意")) return false;
+        if (value.contains("填写要求") || value.contains("请注意")) return false;
         return true;
     }
 
@@ -884,21 +1268,37 @@ public class TemplateFillServiceImpl implements TemplateFillService {
     private String normalizeLabel(String label) {
         // 与ExtractionServiceImpl中的normalizeFieldKey逻辑一致
         if (label == null) return "";
+        // 清理标签文字
+        label = label.trim().replaceAll("[：:（()）\\s]+$", "").trim();
         Map<String, List<String>> aliasMap = Map.ofEntries(
-                Map.entry("project_name", List.of("项目名称", "课题名称", "申报项目名称")),
-                Map.entry("owner", List.of("负责人", "项目负责人", "课题负责人", "主持人")),
-                Map.entry("org_name", List.of("单位名称", "申报单位", "承担单位", "所在单位")),
-                Map.entry("phone", List.of("联系电话", "手机号码", "电话", "手机号")),
-                Map.entry("email", List.of("电子邮箱", "邮箱")),
-                Map.entry("id_number", List.of("身份证号", "身份证号码", "证件号码")),
-                Map.entry("address", List.of("地址", "通讯地址", "联系地址")),
-                Map.entry("start_date", List.of("开始日期", "起始日期", "开始时间")),
-                Map.entry("end_date", List.of("结束日期", "截止日期", "结束时间")),
-                Map.entry("budget", List.of("经费", "预算", "资助金额", "项目经费")),
-                Map.entry("dept_name", List.of("部门", "院系", "学院")),
-                Map.entry("title", List.of("职称", "职务")),
-                Map.entry("degree", List.of("学历", "学位")),
-                Map.entry("research_field", List.of("研究方向", "研究领域"))
+                Map.entry("project_name", List.of("项目名称", "课题名称", "申报项目名称", "项目", "课题")),
+                Map.entry("owner", List.of("负责人", "项目负责人", "课题负责人", "主持人", "申请人", "申报人", "联系人")),
+                Map.entry("org_name", List.of("单位名称", "申报单位", "承担单位", "所在单位", "工作单位", "单位")),
+                Map.entry("phone", List.of("联系电话", "手机号码", "电话", "手机号", "手机", "电话号码", "联系方式")),
+                Map.entry("email", List.of("电子邮箱", "邮箱", "Email", "邮件")),
+                Map.entry("id_number", List.of("身份证号", "身份证号码", "证件号码", "身份证")),
+                Map.entry("address", List.of("地址", "通讯地址", "联系地址", "详细地址")),
+                Map.entry("start_date", List.of("开始日期", "起始日期", "开始时间", "起始时间", "立项时间", "项目开始")),
+                Map.entry("end_date", List.of("结束日期", "截止日期", "结束时间", "截止时间", "完成时间", "项目结束")),
+                Map.entry("budget", List.of("经费", "预算", "资助金额", "项目经费", "总经费", "申请经费", "拨款金额")),
+                Map.entry("dept_name", List.of("部门", "院系", "学院", "系别", "专业")),
+                Map.entry("title", List.of("职称", "职务", "技术职称")),
+                Map.entry("degree", List.of("学历", "学位", "最高学历")),
+                Map.entry("research_field", List.of("研究方向", "研究领域", "专业方向")),
+                Map.entry("gender", List.of("性别")),
+                Map.entry("age", List.of("年龄")),
+                Map.entry("birth_date", List.of("出生日期", "出生年月", "生日")),
+                Map.entry("nationality", List.of("民族", "国籍")),
+                Map.entry("political_status", List.of("政治面貌")),
+                Map.entry("zip_code", List.of("邮编", "邮政编码")),
+                Map.entry("fax", List.of("传真", "传真号码")),
+                Map.entry("bank_account", List.of("银行账号", "账号", "开户行")),
+                Map.entry("project_type", List.of("项目类型", "类型", "项目类别")),
+                Map.entry("project_level", List.of("项目级别", "级别")),
+                Map.entry("keywords", List.of("关键词", "关键字")),
+                Map.entry("abstract_text", List.of("摘要", "项目摘要", "内容摘要")),
+                Map.entry("member", List.of("成员", "团队成员", "参与人", "参加人员", "项目成员")),
+                Map.entry("duration", List.of("执行期限", "研究期限", "项目期限", "实施周期"))
         );
         for (Map.Entry<String, List<String>> entry : aliasMap.entrySet()) {
             for (String alias : entry.getValue()) {
@@ -928,6 +1328,17 @@ public class TemplateFillServiceImpl implements TemplateFillService {
     private String escapeJson(String s) {
         if (s == null) return "";
         return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
+    }
+
+    private int countOverlapChars(String a, String b) {
+        if (a == null || b == null) return 0;
+        Set<Character> setA = new HashSet<>();
+        for (char c : a.toCharArray()) setA.add(c);
+        int count = 0;
+        for (char c : b.toCharArray()) {
+            if (setA.contains(c)) count++;
+        }
+        return count;
     }
 
     // ===== 内部类 =====

@@ -24,6 +24,7 @@ export const uploadSourceDocument = (file, onProgress, cancelToken) => {
 }
 
 export const getSourceDocuments = () => request.get('/source/documents')
+export const getDocumentStatuses = () => request.get('/source/documents/status')
 export const getDocument = (id) => request.get(`/source/${id}`)
 export const getDocumentFields = (id) => request.get(`/source/${id}/fields`)
 export const downloadSourceDocument = (docId) => request.get(`/source/${docId}/download`, { responseType: 'blob' })
@@ -44,7 +45,7 @@ export const getDocumentStats = async () => {
 }
 
 export const deleteDocument = (docId) => request.delete(`/source/${docId}`)
-export const batchDeleteDocuments = (docIds) => request.delete('/source/batch', { data: { docIds } })
+export const batchDeleteDocuments = (docIds) => request.post('/source/batch-delete', { docIds })
 
 // ==================== 模板自动填表 ====================
 

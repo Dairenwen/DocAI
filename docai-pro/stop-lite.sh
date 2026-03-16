@@ -24,6 +24,6 @@ stop_by_jar_keyword "gateway-service/target/gateway-service-1.0.0.jar"
 
 echo "Stopping middleware containers"
 cd "$ROOT_DIR/deploy"
-docker compose -f "$COMPOSE_FILE" stop
+docker compose -p docai -f "$COMPOSE_FILE" stop
 
 echo "Stopped."

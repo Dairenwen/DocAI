@@ -14,6 +14,7 @@ import java.io.*;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/source")
@@ -32,8 +33,12 @@ public class ExtractionController {
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
         if (userId == null) return Result.badRequest("无效的令牌");
-        SourceDocumentEntity doc = extractionService.uploadAndExtract(file, userId);
-        return Result.success("文档上传并抽取成功", doc);
+        try {
+            SourceDocumentEntity doc = extractionService.uploadAndExtract(file, userId);
+            return Result.success("文档上传并抽取成功", doc);
+        } catch (RuntimeException e) {
+            return Result.serverError("文档上传失败: " + e.getMessage());
+        }
     }
 
     @GetMapping("/{docId}/fields")
@@ -53,6 +58,27 @@ public class ExtractionController {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
         if (userId == null) return Result.badRequest("无效的令牌");
         return Result.success("查询成功", extractionService.getUserDocuments(userId));
+    }
+
+    /**
+     * 轻量级状态轮询接口：只返回 parsing 状态文档的 id 和 uploadStatus，
+     * 前端用于高效轮询而无需加载完整文档列表。
+     */
+    @GetMapping("/documents/status")
+    public Result<List<Map<String, Object>>> getDocumentStatuses(
+            @RequestHeader(value = "Authorization", required = false) String authorization
+    ) {
+        Long userId = jwtUtil.getUserIdByAuthorization(authorization);
+        if (userId == null) return Result.badRequest("无效的令牌");
+        List<SourceDocumentEntity> docs = extractionService.getUserDocuments(userId);
+        List<Map<String, Object>> statusList = docs.stream().map(doc -> {
+            Map<String, Object> m = new java.util.LinkedHashMap<>();
+            m.put("id", doc.getId());
+            m.put("uploadStatus", doc.getUploadStatus());
+            m.put("docSummary", doc.getDocSummary());
+            return m;
+        }).toList();
+        return Result.success("查询成功", statusList);
     }
 
     @GetMapping("/{docId}")
@@ -127,15 +153,24 @@ public class ExtractionController {
         }
     }
 
-    @DeleteMapping("/batch")
+    @PostMapping("/batch-delete")
     public Result<Boolean> batchDeleteDocuments(
             @RequestHeader(value = "Authorization", required = false) String authorization,
-            @RequestBody java.util.Map<String, java.util.List<Long>> body
+            @RequestBody java.util.Map<String, Object> body
     ) {
         Long userId = jwtUtil.getUserIdByAuthorization(authorization);
         if (userId == null) return Result.badRequest("无效的令牌");
-        java.util.List<Long> docIds = body.get("docIds");
-        if (docIds == null || docIds.isEmpty()) return Result.badRequest("请提供要删除的文档ID");
-        return Result.success("删除成功", extractionService.batchDeleteDocuments(docIds, userId));
+        Object raw = body.get("docIds");
+        if (!(raw instanceof java.util.List<?> rawList) || rawList.isEmpty()) {
+            return Result.badRequest("请提供要删除的文档ID");
+        }
+        java.util.List<Long> docIds = rawList.stream()
+                .map(item -> Long.valueOf(item.toString()))
+                .collect(java.util.stream.Collectors.toList());
+        try {
+            return Result.success("删除成功", extractionService.batchDeleteDocuments(docIds, userId));
+        } catch (RuntimeException e) {
+            return Result.serverError("批量删除失败: " + e.getMessage());
+        }
     }
 }

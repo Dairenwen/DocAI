@@ -1298,8 +1298,8 @@ const scrollToBottom = async () => {
 .chat-sidebar.collapsed { width: 0; border-right: none; }
 .sidebar-toggle { position: absolute; right: -14px; top: 50%; transform: translateY(-50%); width: 28px; height: 28px; background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 10; transition: all 0.2s; }
 .sidebar-toggle:hover { background: var(--primary); color: white; border-color: var(--primary); }
-.sidebar-body { padding: 20px; overflow-y: auto; flex: 1; }
-.sidebar-section { margin-bottom: 24px; }
+.sidebar-body { padding: 20px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; }
+.sidebar-section { margin-bottom: 24px; flex-shrink: 0; }
 .sidebar-section h4 { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin: 0 0 12px 0; display: flex; align-items: center; gap: 6px; }
 .linked-doc { display: flex; gap: 10px; align-items: center; padding: 12px; background: rgba(79, 70, 229, 0.05); border: 1px solid rgba(79, 70, 229, 0.15); border-radius: var(--radius-md); flex-wrap: wrap; }
 .linked-doc-icon { font-size: 24px; color: var(--primary); }
@@ -1389,10 +1389,10 @@ const scrollToBottom = async () => {
 .dpi-name { display: block; font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dpi-meta { font-size: 12px; color: var(--text-muted); }
 .tip-text { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
-.convo-section { border-top: 1px solid var(--border-light); padding-top: 14px; }
+.convo-section { border-top: 1px solid var(--border-light); padding-top: 14px; flex: 1; display: flex; flex-direction: column; min-height: 0; margin-bottom: 0; }
 .convo-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .convo-search { margin-bottom: 10px; }
-.conversation-list { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.conversation-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
 .conversation-item { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px; border: 1px solid var(--border-light); border-radius: var(--radius-md); background: var(--bg-base); cursor: pointer; transition: all 0.2s; }
 .conversation-item:hover { border-color: var(--primary); background: rgba(79, 70, 229, 0.06); }
 .conversation-item.active { border-color: var(--primary); background: rgba(79, 70, 229, 0.1); }
@@ -1414,6 +1414,6 @@ const scrollToBottom = async () => {
 .model-info { margin-top: 8px; }
 
 @media (max-width: 1024px) {
-  .conversation-list { max-height: 220px; }
+  .conversation-list { min-height: 100px; }
 }
 </style>

@@ -42,10 +42,13 @@ import java.util.regex.Pattern;
 @Slf4j
 public class ExtractionServiceImpl implements ExtractionService {
 
-    // 限制同时进行的LLM提取并发数为2，避免API限流
-    private static final Semaphore LLM_SEMAPHORE = new Semaphore(2);
-    // 异步提取线程池
-    private static final ExecutorService EXTRACT_EXECUTOR = Executors.newFixedThreadPool(3);
+    // 限制同时进行的LLM提取并发数为1，避免API限流（DashScope QPS较低时安全值）
+    private static final Semaphore LLM_SEMAPHORE = new Semaphore(1);
+    // 异步提取线程池（虚拟线程调度，减少线程阻塞开销）
+    private static final ExecutorService EXTRACT_EXECUTOR = Executors.newFixedThreadPool(4);
+    // LLM调用间隔（毫秒），避免API限流
+    private static final long LLM_CALL_INTERVAL_MS = 1500;
+    private static volatile long lastLlmCallTime = 0;
 
     @Autowired
     private SourceDocumentMapper sourceDocumentMapper;
@@ -85,23 +88,27 @@ public class ExtractionServiceImpl implements ExtractionService {
         String originalFilename = file.getOriginalFilename();
         String fileType = getFileType(originalFilename);
 
+        // 先将文件字节读入内存/保存到本地，避免MultipartFile流被多次消费的问题
+        Path tempDir;
+        Path savedPath;
+        try {
+            tempDir = Files.createTempDirectory("docai_source_");
+            savedPath = tempDir.resolve(originalFilename);
+            // 使用 getInputStream() + Files.copy 以确保字节完整落盘
+            try (var is = file.getInputStream()) {
+                Files.copy(is, savedPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("文件保存失败: " + e.getMessage());
+        }
+
+        // 文件已落盘后再上传OSS（从已保存的本地文件读取，不再依赖MultipartFile）
         String ossKey = "";
         try {
             String fileUrl = ossService.uploadFile(file, "source_documents/");
             ossKey = getOssKey(fileUrl);
         } catch (Exception ex) {
             log.warn("源文档上传OSS失败，继续使用本地路径: {}", ex.getMessage());
-        }
-
-        // 保存文件到本地临时目录
-        Path tempDir;
-        Path savedPath;
-        try {
-            tempDir = Files.createTempDirectory("docai_source_");
-            savedPath = tempDir.resolve(originalFilename);
-            file.transferTo(savedPath.toFile());
-        } catch (IOException e) {
-            throw new RuntimeException("文件保存失败: " + e.getMessage());
         }
 
         // 创建源文档记录
@@ -121,6 +128,8 @@ public class ExtractionServiceImpl implements ExtractionService {
         final String filePath = savedPath.toString();
         EXTRACT_EXECUTOR.submit(() -> {
             try {
+                // 等待LLM调用间隔，避免并发调用时触发API限流
+                waitForLlmSlot();
                 LLM_SEMAPHORE.acquire();
                 try {
                     doExtraction(docId, filePath, fileType, originalFilename);
@@ -131,6 +140,9 @@ public class ExtractionServiceImpl implements ExtractionService {
                 Thread.currentThread().interrupt();
                 log.error("文档提取任务被中断: docId={}", docId);
                 updateDocStatus(docId, "failed", "提取任务被中断");
+            } catch (Exception e) {
+                log.error("文档提取任务异常: docId={}, error={}", docId, e.getMessage(), e);
+                updateDocStatus(docId, "failed", "提取异常: " + e.getMessage());
             }
         });
 
@@ -138,23 +150,58 @@ public class ExtractionServiceImpl implements ExtractionService {
     }
 
     /**
+     * 限流等待：确保两次LLM调用之间有足够间隔
+     */
+    private static synchronized void waitForLlmSlot() {
+        long now = System.currentTimeMillis();
+        long elapsed = now - lastLlmCallTime;
+        if (elapsed < LLM_CALL_INTERVAL_MS) {
+            try {
+                Thread.sleep(LLM_CALL_INTERVAL_MS - elapsed);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        lastLlmCallTime = System.currentTimeMillis();
+    }
+
+    /**
      * 实际执行LLM提取的方法（在线程池中运行）
+     * 带重试机制，避免单次API失败导致文档永久停留在parsing状态
      */
     private void doExtraction(long docId, String filePath, String fileType, String originalFilename) {
-        try {
-            String textContent = extractTextContent(filePath, fileType);
-            List<ExtractedFieldEntity> fields = callLlmExtract(docId, textContent, originalFilename);
+        int maxRetries = 2;
+        for (int attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                String textContent = extractTextContent(filePath, fileType);
+                if (textContent == null || textContent.isBlank()) {
+                    updateDocStatus(docId, "failed", "文档内容为空，无法提取");
+                    return;
+                }
+                List<ExtractedFieldEntity> fields = callLlmExtract(docId, textContent, originalFilename);
 
-            for (ExtractedFieldEntity field : fields) {
-                standardizeField(field);
-                extractedFieldMapper.insert(field);
-                updateAliasDict(field);
+                for (ExtractedFieldEntity field : fields) {
+                    standardizeField(field);
+                    extractedFieldMapper.insert(field);
+                    updateAliasDict(field);
+                }
+
+                updateDocStatus(docId, "parsed", fields.size() + "个字段已抽取");
+                return; // 抽取成功，退出重试循环
+            } catch (Exception e) {
+                log.error("文档抽取失败(attempt {}/{}): docId={}, error={}", attempt + 1, maxRetries + 1, docId, e.getMessage(), e);
+                if (attempt < maxRetries) {
+                    try {
+                        Thread.sleep(2000L * (attempt + 1)); // 指数退避
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        updateDocStatus(docId, "failed", "提取任务被中断");
+                        return;
+                    }
+                } else {
+                    updateDocStatus(docId, "failed", "文档内容提取失败，请检查文件格式是否正确");
+                }
             }
-
-            updateDocStatus(docId, "parsed", fields.size() + "个字段已抽取");
-        } catch (Exception e) {
-            log.error("文档抽取失败: docId={}, error={}", docId, e.getMessage(), e);
-            updateDocStatus(docId, "failed", "文档内容提取失败，请检查文件格式是否正确");
         }
     }
 
@@ -246,10 +293,16 @@ public class ExtractionServiceImpl implements ExtractionService {
 
     @Override
     public boolean batchDeleteDocuments(List<Long> docIds, Long userId) {
+        int successCount = 0;
         for (Long docId : docIds) {
-            deleteDocument(docId, userId);
+            try {
+                deleteDocument(docId, userId);
+                successCount++;
+            } catch (Exception e) {
+                log.warn("批量删除文档时跳过 docId={}: {}", docId, e.getMessage());
+            }
         }
-        return true;
+        return successCount > 0;
     }
 
     /**

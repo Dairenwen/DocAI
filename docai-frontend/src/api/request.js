@@ -3,7 +3,7 @@ import { ElMessage } from 'element-plus'
 
 const request = axios.create({
   baseURL: '/api/v1',
-  timeout: 120000, // 2分钟超时，适配自动填表等耗时操作
+  timeout: 300000, // 5分钟超时，匹配后端SSE和模板填表的长耗时操作
 })
 
 // 导出CancelToken以供其他模块使用
@@ -40,7 +40,8 @@ request.interceptors.response.use(
         window.location.href = '/login'
       } else {
         const url = response.config?.url || ''
-        ElMessage.error(`${data.message || '请求失败'} [${url}]`)
+        // 不向用户暴露原始错误路径
+        ElMessage.error(data.message || '请求失败')
       }
       const err = new Error(data.message)
       err.config = response.config
@@ -57,7 +58,7 @@ request.interceptors.response.use(
       const msg = error.response.data?.message || error.response.statusText
       switch (status) {
         case 400:
-          ElMessage.error('请求参数错误: ' + msg)
+          ElMessage.error('请求参数有误，请检查后重试')
           break
         case 401:
           ElMessage.error('登录已过期，请重新登录')
@@ -74,7 +75,7 @@ request.interceptors.response.use(
           ElMessage.warning('服务繁忙，请稍后重试')
           break
         case 500:
-          ElMessage.error('服务器内部错误: ' + msg)
+          ElMessage.error('服务器处理失败，请稍后重试')
           break
         case 503:
           ElMessage.warning('AI服务暂时不可用，请稍后重试')

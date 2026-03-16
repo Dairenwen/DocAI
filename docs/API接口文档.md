@@ -459,6 +459,28 @@ GET /api/v1/source/documents
 Authorization: Bearer <token>
 ```
 
+### 4.3.1 轻量级文档状态轮询 🔒
+
+```
+GET /api/v1/source/documents/status
+Authorization: Bearer <token>
+```
+
+只返回文档的 `id`、`uploadStatus`、`docSummary`，用于前端高效轮询文档解析状态，避免加载完整文档列表造成不必要的带宽和数据库开销。
+
+**响应示例**
+
+```json
+{
+  "code": 200,
+  "message": "查询成功",
+  "data": [
+    { "id": 10000001, "uploadStatus": "parsed", "docSummary": "5个字段已抽取" },
+    { "id": 10000002, "uploadStatus": "parsing", "docSummary": null }
+  ]
+}
+```
+
 ### 4.4 获取文档详情 🔒
 
 ```

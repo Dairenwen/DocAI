@@ -110,13 +110,15 @@
       <el-empty v-if="!loading && documents.length === 0" description="暂无文档，上传你的第一个文件吧" />
       <el-table
         v-else
+        ref="docTableRef"
         :data="documents"
+        row-key="id"
         @selection-change="handleSelectionChange"
         style="width: 100%;"
         row-class-name="table-row"
         stripe
       >
-        <el-table-column type="selection" width="50" />
+        <el-table-column type="selection" width="50" reserve-selection />
         <el-table-column label="文档名称" min-width="280">
           <template #default="{ row }">
             <div class="doc-name-cell">
@@ -248,7 +250,7 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useDocumentStore } from '../store/documentStore'
-import { uploadSourceDocument, uploadExcelFile, getDocumentFields, downloadSourceDocument, downloadBlob } from '../api'
+import { uploadSourceDocument, uploadExcelFile, getDocumentFields, downloadSourceDocument, downloadBlob, getDocumentStatuses } from '../api'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import * as XLSX from 'xlsx'
@@ -290,6 +292,7 @@ const previewLoading = ref(false)
 const previewType = ref('text') // 'text' or 'html' or 'markdown'
 const previewBlobUrl = ref('')
 const previewHtml = ref('')
+const docTableRef = ref(null)
 
 const renderedMarkdown = computed(() => {
   if (!viewDocContent.value) return ''
@@ -729,6 +732,7 @@ const batchDelete = async () => {
     // Use the store action
     await docStore.batchDeleteDocuments(selectedIds.value)
     selectedIds.value = []
+    if (docTableRef.value) docTableRef.value.clearSelection()
     // The list will refresh automatically
   } catch (e) { /* cancelled */ }
 }
@@ -743,24 +747,80 @@ const formatSize = (size) => {
 const formatDate = (d) => d ? d.replace('T', ' ').substring(0, 16) : '-'
 
 let parsingPollTimer = null
+let parsingPollCount = 0
+const MAX_POLL_COUNT = 120 // 最多轮询120次 (~10分钟)
 
+/**
+ * 智能轮询：使用轻量级状态接口，避免频繁加载完整文档列表
+ * - 前30秒每3秒轮询一次（快速响应）
+ * - 之后每8秒轮询一次（减少API压力）
+ * - 超过MAX_POLL_COUNT次后停止轮询
+ */
 const startParsingPoll = () => {
   if (parsingPollTimer) return
-  parsingPollTimer = window.setInterval(async () => {
-    const hasParsing = documents.value?.some(d => d.uploadStatus === 'parsing')
-    if (hasParsing) {
+  parsingPollCount = 0
+  schedulePoll()
+}
+
+const schedulePoll = () => {
+  if (parsingPollCount >= MAX_POLL_COUNT) {
+    stopParsingPoll()
+    return
+  }
+  // 前10次（约30秒）用快速轮询，之后慢速
+  const interval = parsingPollCount < 10 ? 3000 : 8000
+  parsingPollTimer = window.setTimeout(async () => {
+    parsingPollTimer = null
+    parsingPollCount++
+    try {
+      const res = await getDocumentStatuses()
+      const statuses = res.data || []
+      const hasParsing = statuses.some(s => s.uploadStatus === 'parsing')
+
+      // 检查是否有文档状态发生了变化
+      let hasChange = false
+      for (const status of statuses) {
+        const localDoc = docStore.allDocuments.find(d => d.id === status.id)
+        if (localDoc && localDoc.uploadStatus !== status.uploadStatus) {
+          hasChange = true
+          break
+        }
+      }
+
+      if (hasChange) {
+        // 状态有变化，刷新完整列表
+        await loadDocuments(true)
+      }
+
+      if (hasParsing) {
+        schedulePoll()
+      } else {
+        // 所有文档都已完成，最后刷新一次确保UI最新
+        if (hasChange || statuses.some(s => s.uploadStatus === 'parsed')) {
+          await loadDocuments(true)
+        }
+        stopParsingPoll()
+      }
+    } catch (e) {
+      console.warn('轮询文档状态失败:', e)
+      // 出错时回退到完整列表刷新
       await loadDocuments(true)
-    } else {
-      stopParsingPoll()
+      const hasParsing = docStore.allDocuments.some(d => d.uploadStatus === 'parsing')
+      if (hasParsing) {
+        schedulePoll()
+      } else {
+        stopParsingPoll()
+      }
     }
-  }, 5000)
+  }, interval)
 }
 
 const stopParsingPoll = () => {
   if (parsingPollTimer) {
-    window.clearInterval(parsingPollTimer)
+    window.clearTimeout(parsingPollTimer)
     parsingPollTimer = null
   }
+  parsingPollCount = 0
 }
 
 onMounted(() => {
