@@ -186,7 +186,10 @@ if (-not (Test-Path (Join-Path $frontendRoot 'node_modules'))) {
     npm install
     Assert-LastExit 'Frontend dependency install'
 }
-npm run build
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = 'SilentlyContinue'
+& npm run build 2>&1 | ForEach-Object { if ($_ -is [string]) { Write-Host $_ } }
+$ErrorActionPreference = $prevEAP
 Assert-LastExit 'Frontend build'
 Pop-Location
 
@@ -200,11 +203,21 @@ Copy-Item -Path (Join-Path $frontendRoot 'dist\*') -Destination $targetDist -Rec
 
 Write-Host "[5/6] Start middleware containers"
 Push-Location $deployDir
-docker compose -f $composeFile up -d
-Assert-LastExit 'Start middleware containers'
+# Docker Compose writes progress/status to stderr; suppress PowerShell treating it as error
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = 'SilentlyContinue'
+& docker compose -f $composeFile up -d 2>&1 | ForEach-Object { Write-Host $_ }
+$composeExit = $LASTEXITCODE
+$ErrorActionPreference = $prevEAP
+if ($composeExit -ne 0) { throw "Start middleware containers failed (exit $composeExit)" }
 
-$running = docker compose -f $composeFile ps --status running --services
-Assert-LastExit 'Verify middleware containers'
+$ErrorActionPreference = 'SilentlyContinue'
+$running = & docker compose -f $composeFile ps --status running --services 2>&1
+$psExit = $LASTEXITCODE
+$ErrorActionPreference = $prevEAP
+if ($psExit -ne 0) { throw "Verify middleware containers failed (exit $psExit)" }
+# Filter to only string lines (ignore ErrorRecord objects from stderr)
+$running = $running | Where-Object { $_ -is [string] }
 foreach ($svc in @('docai-mysql', 'docai-redis', 'docai-nacos', 'docai-web')) {
     if (-not ($running -contains $svc)) {
         throw "Container $svc is not running. Check: docker compose -f $composeFile logs $svc"
@@ -356,7 +369,7 @@ if ($ossEndpoint -and $ossBucket -and $ossAccessKeyId -and $ossAccessKeySecret) 
 
 Start-JavaService -name 'user-service' -jarPath (Join-Path $root 'user-service\target\user-service-1.0.0.jar') -port 9001 -xmx '256m' -extraArgs (@('--server.port=9001') + $commonArgs + $dbArgs + $mailArgs + $ossArgs)
 Start-JavaService -name 'file-service' -jarPath (Join-Path $root 'file-service\target\file-service-1.0.0-exec.jar') -port 9003 -xmx '256m' -extraArgs (@('--server.port=9003') + $commonArgs + $dbArgs + $multipartArgs + $ossArgs)
-Start-JavaService -name 'ai-service' -jarPath (Join-Path $root 'ai-service\target\ai-service-1.0.0.jar') -port 9002 -xmx '384m' -extraArgs (@('--server.port=9002') + $commonArgs + $dbArgs + $multipartArgs + $aiArgs + $mailArgs + $ossArgs)
+Start-JavaService -name 'ai-service' -jarPath (Join-Path $root 'ai-service\target\ai-service-1.0.0.jar') -port 9002 -xmx '768m' -extraArgs (@('--server.port=9002') + $commonArgs + $dbArgs + $multipartArgs + $aiArgs + $mailArgs + $ossArgs)
 Start-JavaService -name 'gateway-service' -jarPath (Join-Path $root 'gateway-service\target\gateway-service-1.0.0.jar') -port 18080 -xmx '256m' -extraArgs $gatewayArgs -jvmArgs $gatewayJvmArgs
 
 Write-Host ''

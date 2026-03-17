@@ -8,6 +8,8 @@ import com.docai.ai.dto.request.SendEmailRequest;
 import com.docai.ai.dto.response.AiRequestHistoryResponse;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.Map;
+
 /**
  * AI服务业务接口
  */
@@ -19,4 +21,6 @@ public interface AiService {
     Boolean sendEmailWithExcel(SendEmailRequest sendEmailRequest);
 
     Boolean sendContentEmail(SendContentEmailRequest request);
+
+    Map<String, String> applyDocumentEdit(Long docId, Long userId, String content);
 }

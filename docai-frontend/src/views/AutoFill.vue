@@ -231,7 +231,7 @@
                   </el-table-column>
                   <el-table-column label="决策方式" width="130" align="center">
                     <template #default="{ row }">
-                      <el-tag size="small" :type="row.decisionMode === 'rule_only' ? 'success' : row.decisionMode === 'rule_plus_llm' ? 'warning' : 'info'" effect="plain">
+                      <el-tag size="small" :type="row.decisionMode === 'rule_only' ? 'success' : row.decisionMode === 'rule_plus_llm' ? 'warning' : row.decisionMode === 'statistical_aggregation' ? 'success' : row.decisionMode === 'direct_table_copy' ? 'success' : row.decisionMode === 'greedy_fallback' || row.decisionMode === 'llm_fallback' ? 'warning' : 'info'" effect="plain">
                         {{ decisionModeLabel(row.decisionMode) }}
                       </el-tag>
                     </template>
@@ -696,7 +696,16 @@ const downloadSingleResult = (f) => {
 }
 
 const decisionModeLabel = (mode) => {
-  const map = { rule_only: '规则决策', rule_plus_llm: '规则+AI', fallback_blank: '拒填' }
+  const map = {
+    rule_only: '规则决策',
+    rule_plus_llm: '规则+AI',
+    fallback_blank: '拒填',
+    statistical_aggregation: '统计聚合',
+    direct_table_copy: '表格复制',
+    direct_copy_pending: '待复制',
+    greedy_fallback: '贪心兜底',
+    llm_fallback: 'AI兜底'
+  }
   return map[mode] || mode || '未知'
 }
 

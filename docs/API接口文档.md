@@ -387,6 +387,57 @@ Content-Type: application/json
 
 > **注意**：此接口需要配置 SMTP 邮件服务。如未配置环境变量 `DOC_SMTP_USER` 和 `DOC_SMTP_AUTH_CODE`，接口将返回错误提示"邮件服务未配置"。详见[项目启动说明书](项目启动说明书.md)中的 SMTP 配置章节。
 
+### 3.5 文档在线编辑（保存修改） 🔒
+
+```
+POST /api/v1/ai/documents/{docId}/apply-edit
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+**路径参数**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| docId | Long | 源文档 ID |
+
+**请求体**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| content | String | ✅ | 修改后的文档内容 |
+
+**响应示例**
+
+```json
+{
+  "code": 200,
+  "message": "文档修改已保存",
+  "data": {
+    "downloadUrl": "/api/v1/ai/documents/edited/报告_edited.md",
+    "fileName": "报告_edited.md"
+  }
+}
+```
+
+> **注意**：根据原文档扩展名自动选择输出格式：`.docx` 生成 Word 文档，`.md`/`.txt` 直接写入文本文件。
+
+### 3.6 下载修改后文档
+
+```
+GET /api/v1/ai/documents/edited/{fileName}
+```
+
+**路径参数**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| fileName | String | 修改后的文件名（由 3.5 接口返回） |
+
+**响应**：直接返回文件流（`Content-Type` 根据扩展名自动设置）。
+
+> **安全措施**：文件名校验禁止路径遍历（`..`、`/`、`\` 等非法字符），非法请求返回 400。
+
 ---
 
 ## 四、文档提取服务（ai-service / source）
@@ -601,6 +652,28 @@ Authorization: Bearer <token>
 GET /api/v1/template/{templateId}/decisions
 Authorization: Bearer <token>
 ```
+
+**响应字段**：
+
+| 字段 | 说明 |
+|------|------|
+| slotLabel | 槽位标签 |
+| finalValue | 最终填入值 |
+| finalConfidence | 置信度(0~1) |
+| decisionMode | 决策方式 |
+| reason | 决策原因 |
+
+**decisionMode 取值**：
+
+| 值 | 含义 |
+|------|------|
+| rule_only | 纯规则决策 |
+| rule_plus_llm | 规则+AI判定 |
+| fallback_blank | 拒填（置信度过低） |
+| statistical_aggregation | 统计聚合(SUM/AVG等) |
+| direct_table_copy | 表格整体复制 |
+| greedy_fallback | 贪心兜底匹配 |
+| llm_fallback | AI终极兜底 |
 
 ### 5.6 获取模板列表 🔒
 

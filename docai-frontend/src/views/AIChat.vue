@@ -387,7 +387,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { aiChat, getSourceDocuments, getExcelFiles, downloadExcelFile, downloadSourceDocument, downloadBlob, getLlmProviders, getCurrentLlmProvider, switchLlmProvider, sendAiResultEmail, sendContentEmail, listConversations, createConversation, updateConversation, deleteConversationApi, getConversationMessages, addConversationMessage } from '../api'
+import { aiChat, getSourceDocuments, getExcelFiles, downloadExcelFile, downloadSourceDocument, downloadBlob, getLlmProviders, getCurrentLlmProvider, switchLlmProvider, sendAiResultEmail, sendContentEmail, updateDocumentContent, listConversations, createConversation, updateConversation, deleteConversationApi, getConversationMessages, addConversationMessage } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Delete, Position, CopyDocument, Document, Download, Close, FolderOpened,
@@ -1222,7 +1222,28 @@ const sendContentToEmail = async (content) => {
 }
 
 const saveToDocument = async (content) => {
-  ElMessage.info('当前后端未提供文档回写接口，请使用导出功能保存结果')
+  if (!content) {
+    ElMessage.warning('暂无可保存的内容')
+    return
+  }
+  const docId = currentDocId.value
+  if (!docId) {
+    ElMessage.warning('请先关联一个源文档再执行保存操作')
+    return
+  }
+  try {
+    const res = await updateDocumentContent(docId, content)
+    const downloadUrl = res.data?.downloadUrl
+    const fileName = res.data?.fileName
+    if (downloadUrl) {
+      ElMessage.success(`文档已保存为 ${fileName || '新文件'}`)
+      window.open(downloadUrl, '_blank')
+    } else {
+      ElMessage.success('文档保存成功')
+    }
+  } catch (e) {
+    ElMessage.error('文档保存失败: ' + (e?.response?.data?.message || e?.message || '未知错误'))
+  }
 }
 
 const clearChat = async () => {

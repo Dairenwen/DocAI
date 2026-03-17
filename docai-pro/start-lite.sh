@@ -115,7 +115,7 @@ cd "$FRONTEND_ROOT"
 if [ ! -d "node_modules" ]; then
     npm install
 fi
-npm run build
+npm run build 2>&1
 echo "[OK] Frontend build complete"
 
 # ---------- [4/6] Sync frontend dist ----------

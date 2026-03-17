@@ -163,7 +163,7 @@ Write-Host "  Starting file-service..."
 Start-Process java -ArgumentList (@('-Xms128m', '-Xmx256m', '-jar', (Join-Path $root 'file-service\target\file-service-1.0.0-exec.jar'), '--server.port=9003') + $commonArgs + $dbArgs + $multipartArgs) -RedirectStandardOutput (Join-Path $logDir 'file-service.log') -RedirectStandardError (Join-Path $logDir 'file-service.err.log') -WindowStyle Hidden
 
 Write-Host "  Starting ai-service..."
-Start-Process java -ArgumentList (@('-Xms128m', '-Xmx384m', '-jar', (Join-Path $root 'ai-service\target\ai-service-1.0.0.jar'), '--server.port=9002') + $commonArgs + $dbArgs + $multipartArgs + $aiArgs + $mailArgs) -RedirectStandardOutput (Join-Path $logDir 'ai-service.log') -RedirectStandardError (Join-Path $logDir 'ai-service.err.log') -WindowStyle Hidden
+Start-Process java -ArgumentList (@('-Xms256m', '-Xmx768m', '-jar', (Join-Path $root 'ai-service\target\ai-service-1.0.0.jar'), '--server.port=9002') + $commonArgs + $dbArgs + $multipartArgs + $aiArgs + $mailArgs) -RedirectStandardOutput (Join-Path $logDir 'ai-service.log') -RedirectStandardError (Join-Path $logDir 'ai-service.err.log') -WindowStyle Hidden
 
 Write-Host "  Starting gateway-service..."
 Start-Process java -ArgumentList ($gatewayJvmArgs + @('-jar', (Join-Path $root 'gateway-service\target\gateway-service-1.0.0.jar')) + $gatewayArgs) -RedirectStandardOutput (Join-Path $logDir 'gateway-service.log') -RedirectStandardError (Join-Path $logDir 'gateway-service.err.log') -WindowStyle Hidden

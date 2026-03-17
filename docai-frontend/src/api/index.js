@@ -214,7 +214,7 @@ export const sendContentEmail = (data) => request.post('/ai/send-content-email',
 
 export const aiGenerate = () => Promise.reject(new Error('当前后端未提供 AI 写作生成接口'))
 export const aiPolish = () => Promise.reject(new Error('当前后端未提供 AI 润色接口'))
-export const updateDocumentContent = () => Promise.reject(new Error('当前后端未提供文档回写接口'))
+export const updateDocumentContent = (docId, content) => request.post(`/ai/documents/${docId}/apply-edit`, { content })
 
 // ==================== 模型管理 ====================
 

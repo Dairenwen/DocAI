@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.Map;
 
 /**
  * AI服务控制器
@@ -113,6 +114,59 @@ public class AiController {
             return Result.success("邮件发送成功", aiService.sendContentEmail(request));
         } catch (RuntimeException e) {
             return Result.serverError(e.getMessage());
+        }
+    }
+
+    // 将AI修改后的内容保存为新文档版本，返回下载URL
+    @PostMapping("/documents/{docId}/apply-edit")
+    public Result<Map<String, String>> applyDocumentEdit(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable Long docId,
+            @RequestBody Map<String, String> body
+    ) {
+        Long userId = jwtUtil.getUserIdByAuthorization(authorization);
+        if (userId == null) {
+            return Result.badRequest("无效的令牌");
+        }
+        String content = body.get("content");
+        if (content == null || content.isBlank()) {
+            return Result.badRequest("修改内容不能为空");
+        }
+        try {
+            Map<String, String> result = aiService.applyDocumentEdit(docId, userId, content);
+            return Result.success("文档保存成功", result);
+        } catch (RuntimeException e) {
+            return Result.serverError(e.getMessage());
+        }
+    }
+
+    // 下载AI修改后的文档
+    @GetMapping("/documents/edited/{fileName}")
+    public void downloadEditedDocument(
+            @PathVariable String fileName,
+            jakarta.servlet.http.HttpServletResponse response
+    ) {
+        // 安全校验：只允许字母、数字、下划线、点、中文、连字符
+        if (!fileName.matches("[\\w.\\-\\u4e00-\\u9fff]+")) {
+            response.setStatus(400);
+            return;
+        }
+        try {
+            java.io.File file = new java.io.File(System.getProperty("java.io.tmpdir"), "docai_edited/" + fileName);
+            if (!file.exists() || !file.getCanonicalPath().startsWith(
+                    new java.io.File(System.getProperty("java.io.tmpdir"), "docai_edited").getCanonicalPath())) {
+                response.setStatus(404);
+                return;
+            }
+            response.setContentType("application/octet-stream");
+            response.setHeader("Content-Disposition", "attachment; filename=\"" + 
+                java.net.URLEncoder.encode(fileName, "UTF-8") + "\"");
+            try (var fis = new java.io.FileInputStream(file);
+                 var os = response.getOutputStream()) {
+                fis.transferTo(os);
+            }
+        } catch (Exception e) {
+            response.setStatus(500);
         }
     }
 

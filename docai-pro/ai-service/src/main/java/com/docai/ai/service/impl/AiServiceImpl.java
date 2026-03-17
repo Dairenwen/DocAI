@@ -46,6 +46,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -284,8 +285,8 @@ public class AiServiceImpl implements AiService {
 
             String prompt = String.format(
                 "你是DocAI智能助手。以下是用户关联的文档完整内容：\n%s\n\n" +
-                "请根据上述文档的完整原文回答用户问题。如果用户要求编辑、修改、删除、增添内容，请输出修改后的完整文档内容。\n" +
-                "用户问题：%s",
+                "请根据上述文档的完整原文回答用户问题。如果用户要求编辑、修改、删除、增添内容，" +
+                "请输出修改后的完整文档内容，只输出文档内容本身，不要添加额外说明。\n用户问题：%s",
                 context, aiChatRequest.getUserInput()
             );
             String reply = llmService.generateText(prompt);
@@ -293,6 +294,24 @@ public class AiServiceImpl implements AiService {
             aiRequestEntity.setAiResponse(reply);
             aiRequestEntity.setStatus(AiRequestStatus.SUCCESS.getCode());
             aiRequestMapper.updateById(aiRequestEntity);
+
+            // 检测是否为编辑/修改操作，自动保存修改后的文档
+            String userInput = aiChatRequest.getUserInput().toLowerCase();
+            boolean isEditRequest = userInput.contains("修改") || userInput.contains("编辑") || userInput.contains("删除")
+                    || userInput.contains("增加") || userInput.contains("添加") || userInput.contains("替换")
+                    || userInput.contains("改为") || userInput.contains("改成") || userInput.contains("更新")
+                    || userInput.contains("移除") || userInput.contains("插入") || userInput.contains("润色");
+
+            String modifiedUrl = null;
+            if (isEditRequest && reply != null && reply.length() > 50) {
+                try {
+                    Map<String, String> editResult = applyDocumentEdit(sourceDoc.getId(), aiRequestEntity.getUserId(), reply);
+                    modifiedUrl = editResult.get("downloadUrl");
+                    log.info("源文档编辑自动保存: docId={}, url={}", sourceDoc.getId(), modifiedUrl);
+                } catch (Exception e) {
+                    log.warn("源文档编辑自动保存失败: {}", e.getMessage());
+                }
+            }
 
             return AiUnifiedResponse.builder()
                 .requestId(aiRequestEntity.getId())
@@ -302,8 +321,8 @@ public class AiServiceImpl implements AiService {
                 .resultCount(0)
                 .status(AiRequestStatus.SUCCESS.getCode())
                 .needChart(false)
-                .isModificationRequest(false)
-                .modifiedExcelUrl(null)
+                .isModificationRequest(isEditRequest)
+                .modifiedExcelUrl(modifiedUrl)
                 .build();
         } catch (Exception ex) {
             log.error("源文档对话失败: {}", ex.getMessage(), ex);
@@ -495,6 +514,55 @@ public class AiServiceImpl implements AiService {
                 "<hr><p style=\"color: #999; font-size: 12px;\">此邮件由 DocAI 系统自动发送</p>" +
                 "</body></html>";
         return emailService.sendHtmlEmail(request.getEmail(), subject, htmlContent);
+    }
+
+    @Override
+    public Map<String, String> applyDocumentEdit(Long docId, Long userId, String content) {
+        SourceDocumentEntity doc = sourceDocumentMapper.selectById(docId);
+        if (doc == null) throw new RuntimeException("文档不存在");
+        if (!doc.getUserId().equals(userId)) throw new RuntimeException("无权操作该文档");
+
+        String fileType = doc.getFileType() != null ? doc.getFileType().toLowerCase() : "txt";
+        String baseName = doc.getFileName();
+        int dotIdx = baseName.lastIndexOf('.');
+        String nameWithoutExt = dotIdx > 0 ? baseName.substring(0, dotIdx) : baseName;
+        String editedName = nameWithoutExt + "_edited." + (fileType.equals("docx") ? "docx" : fileType.equals("md") ? "md" : "txt");
+
+        File editDir = new File(System.getProperty("java.io.tmpdir"), "docai_edited");
+        if (!editDir.exists()) editDir.mkdirs();
+        File editedFile = new File(editDir, editedName);
+
+        try {
+            if ("docx".equals(fileType)) {
+                // 写入docx格式
+                try (XWPFDocument document = new XWPFDocument()) {
+                    String[] lines = content.split("\n");
+                    for (String line : lines) {
+                        XWPFParagraph para = document.createParagraph();
+                        XWPFRun run = para.createRun();
+                        run.setText(line);
+                    }
+                    try (FileOutputStream fos = new FileOutputStream(editedFile)) {
+                        document.write(fos);
+                    }
+                }
+            } else {
+                // txt/md等文本格式直接写入
+                Files.writeString(editedFile.toPath(), content, StandardCharsets.UTF_8);
+            }
+
+            log.info("文档在线修改完成: docId={}, editedFile={}", docId, editedFile.getAbsolutePath());
+
+            // 返回下载URL (通过AI服务的download端点)
+            String downloadUrl = "/api/v1/ai/documents/edited/" + java.net.URLEncoder.encode(editedName, "UTF-8");
+            Map<String, String> result = new HashMap<>();
+            result.put("downloadUrl", downloadUrl);
+            result.put("fileName", editedName);
+            return result;
+        } catch (Exception e) {
+            log.error("文档在线修改失败: {}", e.getMessage(), e);
+            throw new RuntimeException("文档保存失败: " + e.getMessage());
+        }
     }
 
 
