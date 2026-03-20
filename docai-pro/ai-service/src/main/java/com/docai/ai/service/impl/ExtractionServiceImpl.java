@@ -72,7 +72,7 @@ public class ExtractionServiceImpl implements ExtractionService {
         ALIAS_MAP.put("phone", Arrays.asList("联系电话", "手机号码", "电话", "手机号", "手机", "联系方式"));
         ALIAS_MAP.put("email", Arrays.asList("电子邮箱", "邮箱", "E-mail", "Email", "email"));
         ALIAS_MAP.put("id_number", Arrays.asList("身份证号", "身份证号码", "证件号码", "证件号"));
-        ALIAS_MAP.put("address", Arrays.asList("地址", "通讯地址", "联系地址", "通信地址"));
+        ALIAS_MAP.put("address", Arrays.asList("地址", "通讯地址", "联系地址", "通信地址", "详细地址"));
         ALIAS_MAP.put("start_date", Arrays.asList("开始日期", "起始日期", "开始时间", "起始时间", "项目起始"));
         ALIAS_MAP.put("end_date", Arrays.asList("结束日期", "截止日期", "结束时间", "截止时间", "项目终止"));
         ALIAS_MAP.put("budget", Arrays.asList("经费", "预算", "资助金额", "项目经费", "总经费", "资助额度"));
@@ -81,6 +81,33 @@ public class ExtractionServiceImpl implements ExtractionService {
         ALIAS_MAP.put("degree", Arrays.asList("学历", "学位", "最高学历", "最高学位"));
         ALIAS_MAP.put("research_field", Arrays.asList("研究方向", "研究领域", "专业领域", "学科方向"));
         ALIAS_MAP.put("postal_code", Arrays.asList("邮编", "邮政编码"));
+        ALIAS_MAP.put("project_type", Arrays.asList("项目类型", "课题类型", "项目类别"));
+        ALIAS_MAP.put("project_number", Arrays.asList("项目编号", "课题编号", "合同编号", "编号"));
+        ALIAS_MAP.put("project_level", Arrays.asList("项目级别", "课题级别", "级别"));
+        ALIAS_MAP.put("gender", Arrays.asList("性别"));
+        ALIAS_MAP.put("age", Arrays.asList("年龄"));
+        ALIAS_MAP.put("birth_date", Arrays.asList("出生日期", "出生年月", "生日"));
+        ALIAS_MAP.put("apply_date", Arrays.asList("申报日期", "申请日期", "填报日期"));
+        ALIAS_MAP.put("fax", Arrays.asList("传真", "传真号"));
+        ALIAS_MAP.put("keywords", Arrays.asList("关键词", "关键字", "主题词"));
+        ALIAS_MAP.put("discipline", Arrays.asList("学科分类", "学科方向", "所属学科"));
+        ALIAS_MAP.put("funding_amount", Arrays.asList("资助金额", "拨款金额", "合同金额"));
+        ALIAS_MAP.put("contact_person", Arrays.asList("联系人", "联络人"));
+        ALIAS_MAP.put("id_card", Arrays.asList("身份证", "身份证号码", "证件号"));
+        // 通用地理/数量类字段
+        ALIAS_MAP.put("population", Arrays.asList("人口", "总人口", "人口数", "人口数量", "常住人口"));
+        ALIAS_MAP.put("country", Arrays.asList("国家", "国", "国别", "国家名称"));
+        ALIAS_MAP.put("state_province", Arrays.asList("州", "省", "省份", "自治区", "自治州", "行政区"));
+        ALIAS_MAP.put("area", Arrays.asList("面积", "占地面积", "国土面积", "总面积"));
+        ALIAS_MAP.put("capital", Arrays.asList("首都", "省会", "首府", "行政中心"));
+        ALIAS_MAP.put("gdp", Arrays.asList("GDP", "国内生产总值", "生产总值", "经济总量"));
+        ALIAS_MAP.put("language", Arrays.asList("语言", "官方语言", "通用语言", "主要语言"));
+        ALIAS_MAP.put("currency", Arrays.asList("货币", "货币单位", "流通货币"));
+        ALIAS_MAP.put("region", Arrays.asList("地区", "区域", "所在地区", "行政区划"));
+        ALIAS_MAP.put("city", Arrays.asList("城市", "市", "所在城市"));
+        ALIAS_MAP.put("description", Arrays.asList("描述", "简介", "概况", "说明", "介绍", "备注"));
+        ALIAS_MAP.put("name", Arrays.asList("名称", "姓名", "名字"));
+        ALIAS_MAP.put("quantity", Arrays.asList("数量", "个数", "总数", "数目"));
     }
 
     @Override
@@ -88,27 +115,31 @@ public class ExtractionServiceImpl implements ExtractionService {
         String originalFilename = file.getOriginalFilename();
         String fileType = getFileType(originalFilename);
 
-        // 先将文件字节读入内存/保存到本地，避免MultipartFile流被多次消费的问题
-        Path tempDir;
+        // 将文件持久化保存到 data/local-oss/source_documents/ 目录，避免临时文件被系统清理
         Path savedPath;
+        String ossKey = "";
         try {
-            tempDir = Files.createTempDirectory("docai_source_");
-            savedPath = tempDir.resolve(originalFilename);
-            // 使用 getInputStream() + Files.copy 以确保字节完整落盘
+            Path persistDir = java.nio.file.Paths.get("data", "local-oss", "source_documents").toAbsolutePath().normalize();
+            Files.createDirectories(persistDir);
+            // 确保文件名安全
+            String safeName = java.nio.file.Paths.get(originalFilename).getFileName().toString()
+                    .replace("\\", "_").replace("/", "_").replace(":", "_");
+            savedPath = persistDir.resolve(safeName);
+            // 若文件重名，加时间戳后缀
+            if (Files.exists(savedPath)) {
+                int lastDot = safeName.lastIndexOf('.');
+                String nameOnly = lastDot > 0 ? safeName.substring(0, lastDot) : safeName;
+                String ext = lastDot > 0 ? safeName.substring(lastDot) : "";
+                safeName = nameOnly + "_" + System.currentTimeMillis() + ext;
+                savedPath = persistDir.resolve(safeName);
+            }
             try (var is = file.getInputStream()) {
                 Files.copy(is, savedPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             }
+            ossKey = "source_documents/" + safeName;
+            log.info("源文件已持久保存: {}", savedPath);
         } catch (IOException e) {
             throw new RuntimeException("文件保存失败: " + e.getMessage());
-        }
-
-        // 文件已落盘后再上传OSS（从已保存的本地文件读取，不再依赖MultipartFile）
-        String ossKey = "";
-        try {
-            String fileUrl = ossService.uploadFile(file, "source_documents/");
-            ossKey = getOssKey(fileUrl);
-        } catch (Exception ex) {
-            log.warn("源文档上传OSS失败，继续使用本地路径: {}", ex.getMessage());
         }
 
         // 创建源文档记录
@@ -328,19 +359,59 @@ public class ExtractionServiceImpl implements ExtractionService {
                     sb.append(text.trim()).append("\n");
                 }
             }
-            // 表格
+            // 表格: 智能检测key-value行，输出为"键：值"格式以便后续精准提取
             for (XWPFTable table : doc.getTables()) {
                 for (XWPFTableRow row : table.getRows()) {
-                    StringBuilder rowText = new StringBuilder();
-                    row.getTableCells().forEach(cell -> {
-                        String cellText = cell.getText();
-                        if (cellText != null && !cellText.trim().isEmpty()) {
-                            if (!rowText.isEmpty()) rowText.append(" | ");
-                            rowText.append(cellText.trim());
+                    var cells = row.getTableCells();
+                    if (cells.isEmpty()) continue;
+
+                    // 检测当前行是否为key-value结构（偶数索引的单元格为标签）
+                    boolean isKvRow = cells.size() >= 2 && cells.size() <= 8;
+                    if (isKvRow) {
+                        int labelCount = 0;
+                        int pairCount = (cells.size() + 1) / 2;
+                        for (int c = 0; c < cells.size(); c += 2) {
+                            String text = cells.get(c).getText().trim();
+                            if (!text.isEmpty() && text.length() <= 40 && !text.matches("^[\\d.,%]+$")) {
+                                labelCount++;
+                            }
                         }
-                    });
-                    if (!rowText.isEmpty()) {
-                        sb.append(rowText).append("\n");
+                        isKvRow = labelCount > 0 && labelCount >= pairCount * 0.5;
+                    }
+
+                    if (isKvRow) {
+                        // key-value行：逐对输出"键：值"格式
+                        for (int c = 0; c < cells.size() - 1; c += 2) {
+                            String key = cells.get(c).getText().trim();
+                            String val = cells.get(c + 1).getText().trim();
+                            if (!key.isEmpty() && key.length() <= 40 && !key.matches("^[\\d.,%]+$")) {
+                                sb.append(key).append("：").append(val).append("\n");
+                            } else {
+                                if (!key.isEmpty()) sb.append(key);
+                                if (!val.isEmpty()) {
+                                    if (!key.isEmpty()) sb.append(" | ");
+                                    sb.append(val);
+                                }
+                                if (!key.isEmpty() || !val.isEmpty()) sb.append("\n");
+                            }
+                        }
+                        if (cells.size() % 2 != 0) {
+                            String last = cells.get(cells.size() - 1).getText().trim();
+                            if (!last.isEmpty()) sb.append(last).append("\n");
+                        }
+                    } else {
+                        // 普通表格行：按管道符分隔输出
+                        StringBuilder rowText = new StringBuilder();
+                        cells.forEach(cell -> {
+                            String cellText = cell.getText();
+                            if (cellText != null && !cellText.trim().isEmpty()) {
+                                if (!rowText.isEmpty()) rowText.append(" | ");
+                                rowText.append(cellText.trim());
+                            }
+                        });
+                        if (!rowText.isEmpty()) {
+                            sb.append(rowText).append("\n");
+                        }
                     }
                 }
                 sb.append("\n");
@@ -410,9 +481,9 @@ public class ExtractionServiceImpl implements ExtractionService {
      * 使用DashScope的通义千问模型
      */
     private List<ExtractedFieldEntity> callLlmExtract(Long docId, String textContent, String fileName) {
-        // 截断过长文本
-        if (textContent.length() > 15000) {
-            textContent = textContent.substring(0, 15000) + "\n...(文本已截断)";
+        // 截断过长文本，保留更多内容以确保关键字段不丢失
+        if (textContent.length() > 30000) {
+            textContent = textContent.substring(0, 30000) + "\n...(文本已截断)";
         }
 
         String prompt = buildExtractionPrompt(textContent, fileName);
@@ -441,61 +512,213 @@ public class ExtractionServiceImpl implements ExtractionService {
             return fields;
         }
 
+        Set<String> seen = new HashSet<>();
         String[] lines = textContent.split("\\r?\\n");
-        for (String raw : lines) {
-            String line = raw == null ? "" : raw.trim();
-            if (line.isEmpty() || line.startsWith("#")) {
+        String activeTableHeader = null; // 跟踪当前Markdown表格的表头行
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i] == null ? "" : lines[i].trim();
+            if (line.isEmpty()) {
+                activeTableHeader = null; // 空行重置表头
                 continue;
             }
+            // 移除Markdown标题符号(#)以提取其中的key:value信息
+            if (line.startsWith("#")) {
+                line = line.replaceAll("^#+\\s*", "");
+                if (line.isEmpty()) continue;
+            }
+
+            // 规则1: 标准"键:值"或"键：值"格式
             Matcher m = Pattern.compile("^([^:：]{1,40})[:：]\\s*(.+)$").matcher(line);
-            if (!m.find()) {
-                continue;
-            }
-            String fieldName = m.group(1).trim();
-            String value = m.group(2).trim();
-            if (value.isEmpty()) {
+            if (m.find()) {
+                String fieldName = m.group(1).trim();
+                String value = m.group(2).trim();
+                if (!value.isEmpty() && !seen.contains(fieldName + ":" + value)) {
+                    seen.add(fieldName + ":" + value);
+                    ExtractedFieldEntity field = new ExtractedFieldEntity();
+                    field.setDocId(docId);
+                    field.setFieldName(fieldName);
+                    field.setFieldValue(value);
+                    field.setFieldKey(normalizeKey(fieldName));
+                    field.setFieldType(detectFieldType(fieldName, value));
+                    field.setAliases(JSON.toJSONString(new String[]{fieldName}));
+                    field.setSourceText(line);
+                    field.setSourceLocation("line_" + (i + 1));
+                    field.setConfidence(new BigDecimal("0.7800"));
+                    fields.add(field);
+                }
                 continue;
             }
 
-            ExtractedFieldEntity field = new ExtractedFieldEntity();
-            field.setDocId(docId);
-            field.setFieldName(fieldName);
-            field.setFieldValue(value);
-            field.setFieldKey(normalizeKey(fieldName));
-            field.setFieldType(detectFieldType(fieldName, value));
-            field.setAliases(JSON.toJSONString(new String[]{fieldName}));
-            field.setSourceText(line);
-            field.setSourceLocation("line");
-            field.setConfidence(new BigDecimal("0.7800"));
-            fields.add(field);
+            // 规则2: 表格行 "列值 | 列值 | ..." 格式（支持Markdown表格）
+            if (line.contains("|")) {
+                String[] cells = line.split("\\|");
+                // 跳过分隔行（如 | --- | --- |）
+                boolean isSeparator = true;
+                for (String c : cells) {
+                    c = c.trim();
+                    if (!c.isEmpty() && !c.matches("^[-:= ]+$")) { isSeparator = false; break; }
+                }
+                if (isSeparator) {
+                    // 分隔行：标记前一行为表头
+                    if (i > 0) {
+                        String prevL = lines[i - 1] == null ? "" : lines[i - 1].trim();
+                        if (prevL.contains("|")) {
+                            activeTableHeader = prevL;
+                        }
+                    }
+                    continue;
+                }
+                
+                // 判断当前行是否有有效的表头可用
+                String headerLine = activeTableHeader;
+                if (headerLine == null && cells.length >= 2 && i > 0) {
+                    // 没有分隔行的简单表格：前一行就是表头
+                    String prevLine = lines[i - 1] == null ? "" : lines[i - 1].trim();
+                    if (prevLine.contains("|")) {
+                        boolean prevIsSep = true;
+                        for (String c : prevLine.split("\\|")) {
+                            c = c.trim();
+                            if (!c.isEmpty() && !c.matches("^[-:= ]+$")) { prevIsSep = false; break; }
+                        }
+                        if (!prevIsSep) {
+                            headerLine = prevLine;
+                        }
+                    }
+                }
+
+                if (headerLine != null && cells.length >= 2) {
+                    String[] headers = headerLine.split("\\|");
+                    for (int j = 0; j < Math.min(headers.length, cells.length); j++) {
+                        String header = headers[j].trim();
+                        String cellVal = cells[j].trim();
+                        if (!header.isEmpty() && !cellVal.isEmpty() && !cellVal.matches("^[-=]+$")
+                                && !seen.contains(header + ":" + cellVal)) {
+                            seen.add(header + ":" + cellVal);
+                            ExtractedFieldEntity field = new ExtractedFieldEntity();
+                            field.setDocId(docId);
+                            field.setFieldName(header);
+                            field.setFieldValue(cellVal);
+                            field.setFieldKey(normalizeKey(header));
+                            field.setFieldType(detectFieldType(header, cellVal));
+                            field.setAliases(JSON.toJSONString(new String[]{header}));
+                            field.setSourceText(headerLine + " -> " + line);
+                            field.setSourceLocation("table_row_" + (i + 1));
+                            field.setConfidence(new BigDecimal("0.7500"));
+                            fields.add(field);
+                        }
+                    }
+                } else {
+                    // 没有表头的 | 行：跳过或当作非表格数据
+                    activeTableHeader = null;
+                }
+            } else {
+                // 非表格行：重置活跃表头
+                activeTableHeader = null;
+            }
+
+            // 规则3: 提取行内实体（手机号、邮箱、身份证）
+            Matcher phoneMatcher = Pattern.compile("(1[3-9]\\d{9})").matcher(line);
+            while (phoneMatcher.find()) {
+                String phone = phoneMatcher.group(1);
+                if (!seen.contains("phone:" + phone)) {
+                    seen.add("phone:" + phone);
+                    ExtractedFieldEntity field = new ExtractedFieldEntity();
+                    field.setDocId(docId);
+                    field.setFieldName("联系电话");
+                    field.setFieldValue(phone);
+                    field.setFieldKey("phone");
+                    field.setFieldType("phone");
+                    field.setAliases(JSON.toJSONString(new String[]{"联系电话", "手机号"}));
+                    field.setSourceText(line);
+                    field.setSourceLocation("line_" + (i + 1));
+                    field.setConfidence(new BigDecimal("0.8500"));
+                    fields.add(field);
+                }
+            }
+
+            Matcher emailMatcher = Pattern.compile("([\\w.-]+@[\\w.-]+\\.[a-zA-Z]{2,})").matcher(line);
+            while (emailMatcher.find()) {
+                String email = emailMatcher.group(1);
+                if (!seen.contains("email:" + email)) {
+                    seen.add("email:" + email);
+                    ExtractedFieldEntity field = new ExtractedFieldEntity();
+                    field.setDocId(docId);
+                    field.setFieldName("电子邮箱");
+                    field.setFieldValue(email);
+                    field.setFieldKey("email");
+                    field.setFieldType("email");
+                    field.setAliases(JSON.toJSONString(new String[]{"电子邮箱", "邮箱", "Email"}));
+                    field.setSourceText(line);
+                    field.setSourceLocation("line_" + (i + 1));
+                    field.setConfidence(new BigDecimal("0.9000"));
+                    fields.add(field);
+                }
+            }
+
+            Matcher idMatcher = Pattern.compile("(\\d{17}[\\dXx])").matcher(line);
+            while (idMatcher.find()) {
+                String idNum = idMatcher.group(1);
+                if (!seen.contains("id:" + idNum)) {
+                    seen.add("id:" + idNum);
+                    ExtractedFieldEntity field = new ExtractedFieldEntity();
+                    field.setDocId(docId);
+                    field.setFieldName("身份证号");
+                    field.setFieldValue(idNum);
+                    field.setFieldKey("id_number");
+                    field.setFieldType("id_number");
+                    field.setAliases(JSON.toJSONString(new String[]{"身份证号", "身份证号码", "证件号码"}));
+                    field.setSourceText(line);
+                    field.setSourceLocation("line_" + (i + 1));
+                    field.setConfidence(new BigDecimal("0.8500"));
+                    fields.add(field);
+                }
+            }
         }
         return fields;
     }
 
     private String normalizeKey(String fieldName) {
-        String normalized = fieldName == null ? "" : fieldName.toLowerCase(Locale.ROOT).replaceAll("\\s+", "_");
-        return switch (normalized) {
-            case "项目名称", "课题名称", "申报项目名称" -> "project_name";
-            case "负责人", "项目负责人", "课题负责人" -> "owner";
-            case "单位名称", "申报单位", "承担单位" -> "org_name";
-            case "联系电话", "手机号码", "电话", "手机号" -> "phone";
-            case "电子邮箱", "邮箱" -> "email";
-            default -> normalized;
-        };
+        if (fieldName == null) return "";
+        String cleaned = fieldName.trim();
+        // Use ALIAS_MAP for comprehensive normalization
+        for (Map.Entry<String, List<String>> entry : ALIAS_MAP.entrySet()) {
+            for (String alias : entry.getValue()) {
+                if (cleaned.equals(alias) || cleaned.contains(alias) || alias.contains(cleaned)) {
+                    return entry.getKey();
+                }
+            }
+        }
+        return cleaned.toLowerCase(Locale.ROOT).replaceAll("\\s+", "_");
     }
 
     private String detectFieldType(String fieldName, String value) {
         String text = (fieldName + " " + value).toLowerCase(Locale.ROOT);
-        if (text.matches(".*(电话|手机|联系方式).*") || value.matches("^1\\d{10}$")) {
+        // Phone detection
+        if (text.matches(".*(电话|手机|联系方式|phone|tel|mobile).*") || value.matches("^1[3-9]\\d{9}$") || value.matches("^0\\d{2,3}-?\\d{7,8}$")) {
             return "phone";
         }
-        if (text.matches(".*(日期|时间).*")) {
+        // Email detection
+        if (text.matches(".*(邮箱|email|e-mail).*") || value.matches("^[\\w.-]+@[\\w.-]+\\.[a-zA-Z]{2,}$")) {
+            return "email";
+        }
+        // Date detection
+        if (text.matches(".*(日期|时间|date|年月|起始|截止|开始|结束).*") || value.matches(".*\\d{4}[年/-]\\d{1,2}[月/-].*")) {
             return "date";
         }
-        if (text.matches(".*(单位|大学|公司|机构).*")) {
+        // Person detection
+        if (text.matches(".*(负责人|主持人|联系人|姓名|person|name|作者).*")) {
+            return "person";
+        }
+        // Organization detection
+        if (text.matches(".*(单位|大学|公司|机构|学院|学校|org|院系|部门|研究所|实验室).*")) {
             return "org";
         }
-        if (value.matches("^-?\\d+(\\.\\d+)?$")) {
+        // ID number detection
+        if (text.matches(".*(身份证|证件号|id).*") || value.matches("^\\d{17}[\\dXx]$")) {
+            return "id_number";
+        }
+        // Number/budget/quantity detection
+        if (text.matches(".*(经费|预算|金额|资助|万元|budget|amount|人口|面积|数量|总数|gdp|生产总值).*") || value.matches("^-?\\d+(\\.\\d+)?$") || value.matches("^\\d{1,3}(,\\d{3})*(\\.\\d+)?$")) {
             return "number";
         }
         return "text";
@@ -503,7 +726,7 @@ public class ExtractionServiceImpl implements ExtractionService {
 
     private String buildExtractionPrompt(String textContent, String fileName) {
         return """
-                你是一个专业的文档信息抽取助手。请从以下文档内容中抽取所有关键字段信息。
+                你是一个专业的文档信息抽取助手。请从以下文档内容中完整抽取所有关键字段信息。
                 
                 文件名：%s
                 
@@ -516,26 +739,26 @@ public class ExtractionServiceImpl implements ExtractionService {
                   "doc_type": "文档类型",
                   "fields": [
                     {
-                      "field_key": "标准化字段键（英文，如project_name）",
-                      "field_name": "原始字段名（如：项目名称）",
-                      "field_value": "字段值",
+                      "field_key": "标准化字段键（英文下划线格式）",
+                      "field_name": "原始字段名",
+                      "field_value": "字段值（完整，不截断）",
                       "field_type": "text|date|number|phone|org|person|enum",
-                      "aliases": ["可能的别名"],
-                      "source_text": "原文中包含该字段的语句",
-                      "source_location": "字段在文档中的大致位置描述",
                       "confidence": 0.95
                     }
-                  ],
-                  "summary": "文档内容摘要"
+                  ]
                 }
                 
                 抽取要求：
-                1. 尽可能抽取所有有意义的字段，包括人名、机构名、日期、电话、地址、金额等
-                2. field_type必须准确标注
-                3. 每个字段必须带source_text原文证据
-                4. confidence表示你对该抽取结果的置信度(0-1)
-                5. 不要编造不存在的信息
-                6. 对于表格数据，按行列关系抽取字段
+                1. 完整抽取文档中所有信息字段，不遗漏
+                2. 重点抽取以下字段类别：
+                   - 项目/文档信息、人员信息、机构信息、联系方式
+                   - 时间日期、经费金额、地理信息（国家/省/城市）
+                   - 数量信息（人口、面积、GDP等）
+                3. 对于重复出现的同类字段（如多个省份、多个国家），每个值都应独立抽取为单独的field对象
+                4. 表格/列表数据：每行每个字段独立提取，不要合并多个值
+                5. field_key使用英文下划线格式（如country、population、gdp_per_capita）
+                6. 不要编造信息，字段值必须来自原文
+                7. 为减少输出量，省略source_text和aliases字段
                 """.formatted(fileName, textContent);
     }
 
@@ -545,35 +768,78 @@ public class ExtractionServiceImpl implements ExtractionService {
         try {
             // 尝试从响应中提取JSON
             String jsonStr = extractJsonFromResponse(response);
-            JSONObject result = JSON.parseObject(jsonStr);
-            JSONArray fieldsArray = result.getJSONArray("fields");
-
-            if (fieldsArray != null) {
-                for (int i = 0; i < fieldsArray.size(); i++) {
-                    JSONObject fieldObj = fieldsArray.getJSONObject(i);
-                    ExtractedFieldEntity entity = new ExtractedFieldEntity();
-                    entity.setDocId(docId);
-                    entity.setFieldKey(fieldObj.getString("field_key"));
-                    entity.setFieldName(fieldObj.getString("field_name"));
-                    entity.setFieldValue(fieldObj.getString("field_value"));
-                    entity.setFieldType(fieldObj.getString("field_type"));
-
-                    JSONArray aliasArray = fieldObj.getJSONArray("aliases");
-                    if (aliasArray != null) {
-                        entity.setAliases(aliasArray.toJSONString());
+            JSONObject result = null;
+            
+            // 策略1: 直接解析
+            try {
+                result = JSON.parseObject(jsonStr);
+            } catch (Exception e1) {
+                log.warn("JSON直接解析失败({}), 尝试修复...", e1.getMessage().substring(0, Math.min(100, e1.getMessage().length())));
+                // 策略2: 替换所有控制字符
+                String cleaned = jsonStr.replaceAll("[\\x00-\\x1f&&[^\\n\\r\\t]]", "");
+                try {
+                    result = JSON.parseObject(cleaned);
+                } catch (Exception e2) {
+                    // 策略3: 只提取第一个完整的JSON对象 {"fields":[...]}
+                    int fieldsStart = cleaned.indexOf("\"fields\"");
+                    if (fieldsStart > 0) {
+                        int arrStart = cleaned.indexOf('[', fieldsStart);
+                        if (arrStart > 0) {
+                            // 找到对应的]
+                            int depth = 0;
+                            int arrEnd = -1;
+                            for (int i = arrStart; i < cleaned.length(); i++) {
+                                char c = cleaned.charAt(i);
+                                if (c == '[') depth++;
+                                else if (c == ']') { depth--; if (depth == 0) { arrEnd = i; break; } }
+                            }
+                            if (arrEnd > 0) {
+                                String arrStr = cleaned.substring(arrStart, arrEnd + 1);
+                                result = new JSONObject();
+                                result.put("fields", JSON.parseArray(arrStr));
+                            }
+                        }
                     }
+                }
+            }
+            
+            if (result != null) {
+                JSONArray fieldsArray = result.getJSONArray("fields");
 
-                    entity.setSourceText(fieldObj.getString("source_text"));
-                    entity.setSourceLocation(fieldObj.getString("source_location"));
+                if (fieldsArray != null) {
+                    for (int i = 0; i < fieldsArray.size(); i++) {
+                        try {
+                            JSONObject fieldObj = fieldsArray.getJSONObject(i);
+                            ExtractedFieldEntity entity = new ExtractedFieldEntity();
+                            entity.setDocId(docId);
+                            entity.setFieldKey(fieldObj.getString("field_key"));
+                            entity.setFieldName(fieldObj.getString("field_name"));
+                            entity.setFieldValue(fieldObj.getString("field_value"));
+                            entity.setFieldType(fieldObj.getString("field_type"));
 
-                    BigDecimal conf = fieldObj.getBigDecimal("confidence");
-                    entity.setConfidence(conf != null ? conf : new BigDecimal("0.80"));
+                            JSONArray aliasArray = fieldObj.getJSONArray("aliases");
+                            if (aliasArray != null) {
+                                entity.setAliases(aliasArray.toJSONString());
+                            }
 
-                    fields.add(entity);
+                            entity.setSourceText(fieldObj.getString("source_text"));
+                            entity.setSourceLocation(fieldObj.getString("source_location"));
+
+                            BigDecimal conf = fieldObj.getBigDecimal("confidence");
+                            entity.setConfidence(conf != null ? conf : new BigDecimal("0.80"));
+
+                            fields.add(entity);
+                        } catch (Exception itemEx) {
+                            log.warn("解析第{}个字段失败: {}", i, itemEx.getMessage());
+                        }
+                    }
                 }
             }
         } catch (Exception e) {
             log.error("解析LLM抽取结果失败: {}", e.getMessage());
+        }
+        
+        if (fields.isEmpty()) {
             // 尝试简单的键值对抽取作为fallback
             fields = fallbackExtraction(docId, response);
         }
@@ -592,7 +858,51 @@ public class ExtractionServiceImpl implements ExtractionService {
         if (response.endsWith("```")) {
             response = response.substring(0, response.length() - 3);
         }
-        return response.trim();
+        response = response.trim();
+        
+        // 修复LLM常见的JSON转义问题
+        // 1. 修复未转义的反斜杠（不在合法转义序列中的\）
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < response.length(); i++) {
+            char c = response.charAt(i);
+            if (c == '\\' && i + 1 < response.length()) {
+                char next = response.charAt(i + 1);
+                if (next == '"' || next == '\\' || next == '/' || next == 'b'
+                        || next == 'f' || next == 'n' || next == 'r' || next == 't' || next == 'u') {
+                    sb.append(c); // 合法转义，保留
+                } else {
+                    sb.append("\\\\"); // 非法转义，双重转义
+                }
+            } else {
+                sb.append(c);
+            }
+        }
+        response = sb.toString();
+        
+        // 2. 修复末尾截断的JSON：如果响应被截断，尝试补齐
+        if (!response.endsWith("}") && !response.endsWith("]")) {
+            // 尝试找到最后一个完整的JSON对象
+            int lastBrace = response.lastIndexOf('}');
+            if (lastBrace > 0) {
+                response = response.substring(0, lastBrace + 1);
+                // 检查是否需要补齐外层大括号
+                long openBraces = response.chars().filter(ch -> ch == '{').count();
+                long closeBraces = response.chars().filter(ch -> ch == '}').count();
+                while (closeBraces < openBraces) {
+                    response += "}";
+                    closeBraces++;
+                }
+                // 检查数组括号
+                long openBrackets = response.chars().filter(ch -> ch == '[').count();
+                long closeBrackets = response.chars().filter(ch -> ch == ']').count();
+                while (closeBrackets < openBrackets) {
+                    response += "]";
+                    closeBrackets++;
+                }
+            }
+        }
+        
+        return response;
     }
 
     private List<ExtractedFieldEntity> fallbackExtraction(Long docId, String text) {

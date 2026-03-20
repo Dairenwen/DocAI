@@ -59,11 +59,12 @@ export const uploadTemplateFile = (file, onProgress) => {
 }
 
 export const parseTemplateSlots = (templateId) => request.post(`/template/${templateId}/parse`)
-export const fillTemplate = (templateId, docIds = []) => request.post(`/template/${templateId}/fill`, { docIds })
+export const fillTemplate = (templateId, docIds = [], userRequirement = '') => request.post(`/template/${templateId}/fill`, { docIds, userRequirement })
 export const listTemplateFiles = () => request.get('/template/list')
 export const getTemplateAudit = (templateId) => request.get(`/template/${templateId}/audit`)
 export const getTemplateDecisions = (templateId) => request.get(`/template/${templateId}/decisions`)
 export const downloadTemplateResult = (templateId) => request.get(`/template/${templateId}/download`, { responseType: 'blob' })
+export const sendTemplateResultEmail = (templateId, email) => request.post(`/template/${templateId}/send-email`, { email })
 
 // ==================== 文件服务（Excel） ====================
 

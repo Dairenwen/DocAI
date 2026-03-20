@@ -125,6 +125,41 @@
             <el-icon><MagicStick /></el-icon> 开始智能填充
           </el-button>
         </div>
+
+        <div class="requirement-panel">
+          <div class="requirement-panel-head">
+            <div class="requirement-title-wrap">
+              <span class="requirement-icon"><el-icon :size="14"><Edit /></el-icon></span>
+              <div>
+                <h4 class="requirement-title">用户需求（可选）</h4>
+                <p class="requirement-subtitle">可指定时间、地点、日期、类型等约束，系统将优先匹配符合条件的数据</p>
+              </div>
+            </div>
+            <el-button size="small" text type="primary" @click="userRequirement = ''">清空</el-button>
+          </div>
+          <el-input
+            v-model="userRequirement"
+            type="textarea"
+            :rows="3"
+            placeholder="例如：仅填写2024年北京市公开招标类型数据，并优先选择金额大于100万的项目"
+            maxlength="500"
+            show-word-limit
+            clearable
+          />
+          <div class="requirement-examples">
+            <span class="example-label">快捷示例：</span>
+            <el-tag
+              v-for="example in requirementExamples"
+              :key="example"
+              size="small"
+              effect="plain"
+              class="example-tag"
+              @click="applyRequirementExample(example)"
+            >
+              {{ example }}
+            </el-tag>
+          </div>
+        </div>
       </div>
 
       <div class="template-tips card" style="background: #FFFBEB; border-color: #FDE68A;">
@@ -183,6 +218,9 @@
             <el-button v-if="resultFiles.length > 0 && !fillError" type="primary" @click="downloadResult">
               <el-icon><Download /></el-icon> 下载结果
             </el-button>
+            <el-button v-if="resultFiles.length > 0 && !fillError" type="success" @click="showEmailDialog = true">
+              <el-icon><Message /></el-icon> 发送至邮箱
+            </el-button>
             <el-button @click="resetAll">
               <el-icon><RefreshRight /></el-icon> 继续填表
             </el-button>
@@ -208,14 +246,14 @@
             </div>
 
             <!-- Tab: 填充明细 / 分析结果 -->
-            <el-tabs v-model="resultTab" class="result-tabs" v-if="decisionList.length > 0">
+            <el-tabs v-model="resultTab" class="result-tabs">
               <el-tab-pane label="填充明细" name="detail">
-                <el-table :data="decisionList" stripe max-height="420" style="width:100%">
+                <el-table v-if="decisionList.length > 0" :data="decisionList" stripe max-height="420" style="width:100%">
                   <el-table-column label="字段" prop="slotLabel" min-width="140" />
                   <el-table-column label="填入值" prop="finalValue" min-width="200">
                     <template #default="{ row }">
                       <span v-if="row.finalValue">{{ row.finalValue }}</span>
-                      <el-tag v-else size="small" type="info">未填写</el-tag>
+                      <el-tag v-else size="small" type="warning">数据源无匹配</el-tag>
                     </template>
                   </el-table-column>
                   <el-table-column label="置信度" width="120" align="center">
@@ -238,10 +276,13 @@
                   </el-table-column>
                   <el-table-column label="原因" prop="reason" min-width="200" show-overflow-tooltip />
                 </el-table>
+                <div v-else class="preview-empty">
+                  <p>当前模板暂无可展示的填充明细</p>
+                </div>
               </el-tab-pane>
 
               <el-tab-pane label="分析结果" name="analysis">
-                <div class="analysis-charts">
+                <div v-if="decisionList.length > 0" class="analysis-charts">
                   <div class="chart-row">
                     <div class="chart-card">
                       <h4>置信度分布</h4>
@@ -258,6 +299,52 @@
                       <div ref="barChartRef" class="chart-container-wide"></div>
                     </div>
                   </div>
+                </div>
+                <div v-else class="preview-empty">
+                  <p>暂无分析数据，请先完成一次填表</p>
+                </div>
+              </el-tab-pane>
+
+              <el-tab-pane label="在线预览" name="preview">
+                <div class="preview-container" v-if="resultFiles.length > 0">
+                  <div class="preview-toolbar" v-if="resultFiles.length > 1">
+                    <el-radio-group v-model="previewFileIndex" size="small">
+                      <el-radio-button v-for="(f, i) in resultFiles" :key="i" :value="i">{{ f.name }}</el-radio-button>
+                    </el-radio-group>
+                  </div>
+                  <div v-if="previewLoading" class="preview-loading">
+                    <el-icon class="is-loading" :size="32"><RefreshRight /></el-icon>
+                    <p>正在加载预览...</p>
+                  </div>
+                  <div v-else-if="previewError" class="preview-error">
+                    <p>{{ previewError }}</p>
+                  </div>
+                  <div v-else>
+                    <div v-if="previewType === 'xlsx'" class="excel-preview">
+                      <VueOfficeExcel
+                        v-if="previewSource"
+                        :src="previewSource"
+                        style="height: 620px; width: 100%;"
+                        @rendered="onPreviewRendered"
+                        @error="onPreviewFailed"
+                      />
+                    </div>
+                    <div v-else-if="previewType === 'docx'" class="docx-preview">
+                      <VueOfficeDocx
+                        v-if="previewSource"
+                        :src="previewSource"
+                        style="min-height: 620px; width: 100%; background: #fff;"
+                        @rendered="onPreviewRendered"
+                        @error="onPreviewFailed"
+                      />
+                    </div>
+                    <div v-else class="preview-unsupported">
+                      <p>不支持预览此文件类型</p>
+                    </div>
+                  </div>
+                </div>
+                <div v-else class="preview-empty">
+                  <p>暂无可预览的文件</p>
                 </div>
               </el-tab-pane>
             </el-tabs>
@@ -335,6 +422,19 @@
         </div>
       </template>
     </el-dialog>
+
+    <!-- Email Send Dialog -->
+    <el-dialog v-model="showEmailDialog" title="发送填表结果至邮箱" width="480px">
+      <el-form @submit.prevent="sendEmail">
+        <el-form-item label="收件邮箱">
+          <el-input v-model="emailAddress" placeholder="请输入收件人邮箱" type="email" clearable />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showEmailDialog = false">取消</el-button>
+        <el-button type="primary" :loading="sendingEmail" @click="sendEmail">发送</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -348,17 +448,22 @@ import {
   fillTemplate,
   downloadTemplateResult,
   getTemplateDecisions,
+  sendTemplateResultEmail,
   downloadBlob
 } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   UploadFilled, MagicStick, Download, InfoFilled, WarningFilled, RefreshRight,
-  Document, SuccessFilled, CircleCloseFilled
+  Document, SuccessFilled, CircleCloseFilled, Edit, Message
 } from '@element-plus/icons-vue'
 import * as echarts from 'echarts/core'
 import { PieChart, BarChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import VueOfficeDocx from '@vue-office/docx'
+import VueOfficeExcel from '@vue-office/excel'
+import '@vue-office/docx/lib/index.css'
+import '@vue-office/excel/lib/index.css'
 
 echarts.use([PieChart, BarChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
 
@@ -373,12 +478,18 @@ const ACCEPTED_EXTENSIONS = ['.docx', '.xlsx']
 const currentStep = ref(0)
 const templateFiles = ref([])
 const selectedSourceDocIds = ref([])
+const userRequirement = ref('')
 
 const showSourceDialog = ref(false)
 const sourceKeyword = ref('')
 const sourceType = ref('')
 const sourceDialogSelectedIds = ref([])
 const sourceTableRef = ref(null)
+
+// Email send state
+const showEmailDialog = ref(false)
+const emailAddress = ref('')
+const sendingEmail = ref(false)
 
 // Fill state
 const fillProgress = ref(0)
@@ -397,6 +508,20 @@ const confidenceChartRef = ref(null)
 const modeChartRef = ref(null)
 const barChartRef = ref(null)
 let chartInstances = []
+
+// Preview
+const previewFileIndex = ref(0)
+const previewSheetIndex = ref(0)
+const previewLoading = ref(false)
+const previewError = ref('')
+const previewType = ref('')
+const previewSource = ref(null)
+const requirementExamples = [
+  '仅填写2024年北京市数据',
+  '仅填写公开招标类型项目',
+  '仅填写近30天内数据',
+  '优先填写上海地区且金额大于100万'
+]
 
 const fillTimeDisplay = computed(() => {
   if (fillTimeMs.value < 1000) return fillTimeMs.value + 'ms'
@@ -499,6 +624,10 @@ const clearSelectedSources = () => {
   selectedSourceDocIds.value = []
 }
 
+const applyRequirementExample = (example) => {
+  userRequirement.value = example
+}
+
 const handleTemplateChange = (file) => {
   if (!file?.raw) return
   if (!isTemplateType(file.raw.name)) {
@@ -596,11 +725,21 @@ const startFill = async () => {
 
   // 模拟进度
   const progressTimer = setInterval(() => {
-    if (fillProgress.value < 90) {
-      fillProgress.value += Math.random() * 6
+    if (fillProgress.value < 95) {
+      // 前70%快速增长，70-90%减速，90-95%极慢（等待后端响应）
+      let increment
+      if (fillProgress.value < 70) {
+        increment = Math.random() * 6
+      } else if (fillProgress.value < 90) {
+        increment = Math.random() * 2
+      } else {
+        increment = Math.random() * 0.3
+      }
+      fillProgress.value += increment
       if (fillProgress.value > 20 && fillPhase.value < 1) { fillPhase.value = 1; progressText.value = '分析模板结构...' }
       if (fillProgress.value > 45 && fillPhase.value < 2) { fillPhase.value = 2; progressText.value = 'AI正在提取匹配数据...' }
       if (fillProgress.value > 70 && fillPhase.value < 3) { fillPhase.value = 3; progressText.value = '填充模板中...' }
+      if (fillProgress.value > 90 && fillPhase.value < 4) { progressText.value = '正在写入模板...' }
     }
   }, 600)
 
@@ -624,7 +763,7 @@ const startFill = async () => {
         throw new Error(parseRes.message || '模板解析失败')
       }
 
-      const fillRes = await fillTemplate(templateId, docIds)
+      const fillRes = await fillTemplate(templateId, docIds, userRequirement.value)
       // 检查填表结果
       if (fillRes.code && fillRes.code !== 200) {
         throw new Error(fillRes.message || '自动填表失败')
@@ -695,18 +834,44 @@ const downloadSingleResult = (f) => {
   ElMessage.success('下载成功')
 }
 
+const sendEmail = async () => {
+  if (!emailAddress.value || !/^[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}$/.test(emailAddress.value)) {
+    ElMessage.warning('请输入有效的邮箱地址')
+    return
+  }
+  if (templateIdsForDecisions.value.length === 0) {
+    ElMessage.warning('无可发送的结果')
+    return
+  }
+  sendingEmail.value = true
+  try {
+    for (const tid of templateIdsForDecisions.value) {
+      await sendTemplateResultEmail(tid, emailAddress.value)
+    }
+    ElMessage.success('邮件发送成功')
+    showEmailDialog.value = false
+    emailAddress.value = ''
+  } catch (e) {
+    const msg = e.response?.data?.message || e.message || '发送失败'
+    ElMessage.error('邮件发送失败: ' + msg)
+  } finally {
+    sendingEmail.value = false
+  }
+}
+
 const decisionModeLabel = (mode) => {
   const map = {
-    rule_only: '规则决策',
-    rule_plus_llm: '规则+AI',
-    fallback_blank: '拒填',
+    rule_only: '规则匹配',
+    rule_plus_llm: '规则+AI判定',
+    fallback_blank: '待补充',
     statistical_aggregation: '统计聚合',
     direct_table_copy: '表格复制',
+    direct_copy_fallback_single: '复制回退单值',
     direct_copy_pending: '待复制',
-    greedy_fallback: '贪心兜底',
-    llm_fallback: 'AI兜底'
+    greedy_fallback: '智能匹配',
+    llm_fallback: 'AI提取'
   }
-  return map[mode] || mode || '未知'
+  return map[mode] || mode || '自动匹配'
 }
 
 const loadDecisions = async (templateIds) => {
@@ -821,6 +986,53 @@ watch(resultTab, async (tab) => {
 
 onBeforeUnmount(disposeCharts)
 
+// === 在线预览功能 ===
+async function loadPreview() {
+  if (resultFiles.value.length === 0) return
+  const file = resultFiles.value[previewFileIndex.value]
+  if (!file || !file.blob) return
+
+  previewLoading.value = true
+  previewError.value = ''
+  previewSource.value = null
+
+  const name = file.name.toLowerCase()
+  try {
+    const arrayBuffer = await file.blob.arrayBuffer()
+    if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+      previewType.value = 'xlsx'
+      previewSource.value = arrayBuffer
+      // 设置previewLoading=false让VueOffice组件渲染，组件内部会触发@rendered/@error回调
+      previewLoading.value = false
+    } else if (name.endsWith('.docx')) {
+      previewType.value = 'docx'
+      previewSource.value = arrayBuffer
+      previewLoading.value = false
+    } else {
+      previewType.value = ''
+      previewError.value = '不支持预览此文件类型'
+      previewLoading.value = false
+    }
+  } catch (e) {
+    previewError.value = '预览加载失败: ' + (e.message || e)
+    previewLoading.value = false
+  }
+}
+
+function onPreviewRendered() {
+  previewLoading.value = false
+}
+
+function onPreviewFailed(err) {
+  previewError.value = '预览加载失败: ' + ((err && err.message) || '未知错误')
+  previewLoading.value = false
+}
+
+watch(resultTab, (val) => {
+  if (val === 'preview') loadPreview()
+})
+watch(previewFileIndex, () => { loadPreview() })
+
 const resetAll = () => {
   currentStep.value = 0
   templateFiles.value = []
@@ -832,6 +1044,12 @@ const resetAll = () => {
   resultTab.value = 'detail'
   decisionList.value = []
   templateIdsForDecisions.value = []
+  userRequirement.value = ''
+  previewFileIndex.value = 0
+  previewType.value = ''
+  previewError.value = ''
+  previewLoading.value = false
+  previewSource.value = null
   disposeCharts()
   sourceKeyword.value = ''
   sourceType.value = ''
@@ -852,6 +1070,10 @@ const formatDate = (dateString) => {
 }
 
 onMounted(loadStats)
+onBeforeUnmount(() => {
+  disposeCharts()
+  previewSource.value = null
+})
 </script>
 
 <style scoped>
@@ -1414,5 +1636,104 @@ onMounted(loadStats)
 
 .manage-docs-btn:hover {
   background: rgba(79, 70, 229, 0.2) !important;
+}
+
+.requirement-panel {
+  margin: 0 28px 12px;
+  padding: 14px;
+  border: 1px solid rgba(79, 70, 229, 0.2);
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.05), rgba(16, 185, 129, 0.05));
+}
+
+.requirement-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.requirement-title-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.requirement-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: rgba(79, 70, 229, 0.12);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.requirement-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.requirement-subtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.requirement-examples {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.example-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.example-tag {
+  cursor: pointer;
+}
+
+.preview-loading,
+.preview-error,
+.preview-empty,
+.preview-unsupported {
+  min-height: 260px;
+  border: 1px dashed var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-base);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-secondary);
+}
+
+.preview-error {
+  color: #b91c1c;
+  background: #fff7f7;
+  border-color: #fecaca;
+}
+
+.preview-container {
+  min-height: 300px;
+}
+
+.excel-preview,
+.docx-preview {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  overflow: auto;
+  background: #fff;
 }
 </style>

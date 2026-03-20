@@ -28,7 +28,7 @@ public interface TemplateFillService {
     /**
      * 自动匹配并填表
      */
-    Map<String, Object> autoFill(Long templateId, List<Long> docIds, Long userId);
+    Map<String, Object> autoFill(Long templateId, List<Long> docIds, Long userId, String userRequirement);
 
     /**
      * 获取审计日志
