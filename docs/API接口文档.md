@@ -35,9 +35,11 @@ Content-Type: application/json
 | password | String | 条件 | 密码（密码模式必填） |
 | email | String | 条件 | 邮箱（验证码模式必填） |
 | verificationCode | String | 条件 | 验证码（验证码模式必填） |
+| isRegister | Boolean | 否 | 是否为注册请求；密码模式下注册时传 `true` |
 
 支持两种认证方式：
-- **密码模式**：提供 `username` + `password`，新用户自动注册
+- **密码模式-登录**：提供 `username` + `password`，若用户不存在则返回“用户不存在，请先注册”
+- **密码模式-注册**：提供 `username` + `password` + `isRegister=true`，创建新用户并直接登录
 - **验证码模式**：提供 `email` + `verificationCode`
 
 **响应示例**

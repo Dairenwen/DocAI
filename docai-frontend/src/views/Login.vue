@@ -558,7 +558,14 @@ const handleLogin = async () => {
     ElMessage.success('登录成功，欢迎 ' + (data.userName || '用户'))
     router.push('/')
   } catch (e) {
-    // error handled by interceptor
+    // 用户不存在时，自动切换到注册页面并预填用户名
+    const msg = e?.response?.data?.message || e?.message || ''
+    if (msg.includes('用户不存在')) {
+      ElMessage.warning('该用户不存在，请先注册')
+      isLogin.value = false
+      registerForm.username = loginForm.username
+      return
+    }
   } finally {
     loading.value = false
   }
@@ -571,14 +578,18 @@ const handleRegister = async () => {
 
   loading.value = true
   try {
-    await authRegister({
+    const res = await authRegister({
       username: registerForm.username,
-      password: registerForm.password
+      password: registerForm.password,
+      isRegister: true
     })
-    ElMessage.success('注册并登录能力已开通，使用账号密码直接登录即可')
-    isLogin.value = true
-    loginForm.username = registerForm.username
-    loginForm.password = ''
+    const data = res.data
+    localStorage.setItem('token', data.token)
+    localStorage.setItem('userId', data.userId)
+    localStorage.setItem('username', data.userName)
+    localStorage.setItem('nickname', data.userName)
+    ElMessage.success('注册成功，欢迎 ' + (data.userName || '用户'))
+    router.push('/')
   } catch (e) {
     // error handled by interceptor
   } finally {

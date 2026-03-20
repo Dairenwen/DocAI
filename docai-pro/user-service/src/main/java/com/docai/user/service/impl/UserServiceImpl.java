@@ -85,12 +85,16 @@ public class UserServiceImpl implements UserService {
             user = userMapper.findByLoginKey(authRequest.getUsername());
 
             if (user == null) {
-                // 新用户，需要先注册
-                user = new UserEntity();
-                user.setUserName(authRequest.getUsername());
-                user.setPasswordHash(passwordEncoder.encode(authRequest.getPassword()));
-                userMapper.insert(user);
-                isNewUser = true;
+                // 用户不存在：如果是注册请求则创建新用户，否则提示前往注册
+                if (Boolean.TRUE.equals(authRequest.getIsRegister())) {
+                    user = new UserEntity();
+                    user.setUserName(authRequest.getUsername());
+                    user.setPasswordHash(passwordEncoder.encode(authRequest.getPassword()));
+                    userMapper.insert(user);
+                    isNewUser = true;
+                } else {
+                    throw new IllegalArgumentException("用户不存在，请先注册");
+                }
             } else {
                 // 老用户，校验密码
                 if (!passwordEncoder.matches(authRequest.getPassword(), user.getPasswordHash())) {

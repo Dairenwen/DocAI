@@ -28,4 +28,9 @@ public class AuthRequest {
      */
     private String verificationCode;
 
+    /**
+     * 是否为注册请求
+     */
+    private Boolean isRegister;
+
 }
