@@ -32,12 +32,10 @@ request.interceptors.response.use(
     // 业务错误码处理
     if (data.code && data.code !== 200) {
       if (data.code === 401) {
-        ElMessage.error('登录已过期，请重新登录')
-        localStorage.removeItem('token')
-        localStorage.removeItem('userId')
-        localStorage.removeItem('username')
-        localStorage.removeItem('nickname')
-        window.location.href = '/login'
+        handleTokenExpired()
+      } else if (isTokenInvalidMessage(data.message)) {
+        // 捕获"无效的令牌"等token相关业务错误
+        handleTokenExpired()
       } else {
         const url = response.config?.url || ''
         // 不向用户暴露原始错误路径
@@ -58,15 +56,15 @@ request.interceptors.response.use(
       const msg = error.response.data?.message || error.response.statusText
       switch (status) {
         case 400:
-          ElMessage.error('请求参数有误，请检查后重试')
+          // 检查是否是token相关的400错误
+          if (isTokenInvalidMessage(msg) || isTokenInvalidMessage(error.response.data?.message)) {
+            handleTokenExpired()
+          } else {
+            ElMessage.error('请求参数有误，请检查后重试')
+          }
           break
         case 401:
-          ElMessage.error('登录已过期，请重新登录')
-          localStorage.removeItem('token')
-          localStorage.removeItem('userId')
-          localStorage.removeItem('username')
-          localStorage.removeItem('nickname')
-          window.location.href = '/login'
+          handleTokenExpired()
           break
         case 413:
           ElMessage.error('上传文件过大')
@@ -91,5 +89,27 @@ request.interceptors.response.use(
     return Promise.reject(error)
   }
 )
+
+// 判断是否是token失效相关的错误消息
+function isTokenInvalidMessage(msg) {
+  if (!msg) return false
+  return msg.includes('令牌无效') || msg.includes('无效的令牌') || msg.includes('令牌过期') || msg.includes('登录已过期')
+}
+
+// 统一处理token过期：清除本地存储并跳转登录页
+let isRedirecting = false
+function handleTokenExpired() {
+  if (isRedirecting) return
+  isRedirecting = true
+  ElMessage.error('登录已过期，请重新登录')
+  localStorage.removeItem('token')
+  localStorage.removeItem('userId')
+  localStorage.removeItem('username')
+  localStorage.removeItem('nickname')
+  setTimeout(() => {
+    isRedirecting = false
+    window.location.href = '/login'
+  }, 500)
+}
 
 export default request

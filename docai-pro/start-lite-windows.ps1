@@ -139,7 +139,7 @@ function Start-JavaService([string]$name, [string]$jarPath, [int]$port, [string]
     $errLog = Join-Path $logDir "$name.err.log"
 
     Write-Host "[START] $name"
-    $args = @("-Xms128m", "-Xmx$xmx") + $jvmArgs + @('-jar', $jarPath) + $extraArgs
+    $args = @("-Xms128m", "-Xmx$xmx", "-Dfile.encoding=UTF-8", "-Dsun.jnu.encoding=UTF-8") + $jvmArgs + @('-jar', $jarPath) + $extraArgs
     Start-Process -FilePath 'java' `
         -ArgumentList $args `
         -RedirectStandardOutput $outLog `

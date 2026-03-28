@@ -94,4 +94,13 @@ public class LlmServiceImpl implements LlmService {
         }
         return llmProvider.generateText(prompt);
     }
+
+    @Override
+    public String generateMultiModalText(String prompt, List<String> imageBase64List, String provider, String model) {
+        LlmProvider llmProvider = providerFactory.getProvider(provider != null ? provider : currentProvider);
+        if (llmProvider == null) {
+            llmProvider = providerFactory.getProvider(currentProvider);
+        }
+        return llmProvider.generateMultiModalText(prompt, imageBase64List, model);
+    }
 }

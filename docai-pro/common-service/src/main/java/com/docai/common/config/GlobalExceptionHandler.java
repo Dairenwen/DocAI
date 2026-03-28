@@ -45,6 +45,10 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(IllegalArgumentException.class)
     public Result<Void> illegalArgumentException(IllegalArgumentException e) {
+        // 令牌相关异常返回401，前端自动跳转登录
+        if (e.getMessage() != null && (e.getMessage().contains("令牌") || e.getMessage().contains("token"))) {
+            return Result.error(Result.ResultCode.UNAUTHORIZED, "登录已过期，请重新登录");
+        }
         return Result.badRequest(e.getMessage());
     }
 

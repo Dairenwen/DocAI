@@ -80,7 +80,8 @@ public class JwtAuthGatewayFilterFactory extends AbstractGatewayFilterFactory<Jw
             } else {
                 ServerHttpResponse response = exchange.getResponse();
                 response.setStatusCode(HttpStatus.UNAUTHORIZED);
-                String body = "令牌无效";
+                response.getHeaders().add("Content-Type", "application/json;charset=UTF-8");
+                String body = "{\"code\":401,\"message\":\"登录已过期，请重新登录\",\"data\":null}";
                 DataBuffer buffer = response.bufferFactory()
                         .wrap(body.getBytes(StandardCharsets.UTF_8));
                 return response.writeWith(Mono.just(buffer));

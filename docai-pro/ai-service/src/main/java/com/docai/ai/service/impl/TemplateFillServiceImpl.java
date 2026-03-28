@@ -325,7 +325,7 @@ public class TemplateFillServiceImpl implements TemplateFillService {
 
         // 全局计时器：从此刻开始计算总填表时间（含表头引导提取）
         long fillStartTime = System.currentTimeMillis();
-        long maxFillTimeMs = 55_000; // 55秒总上限（含表头引导提取+填表循环+写回）
+        long maxFillTimeMs = 45_000; // 45秒总上限（含表头引导提取+填表循环+写回）
 
         // === 表头引导提取：根据模板表头去源文档中查找并补充提取 ===
         // 对于非结构化文档(md/txt/docx)，按模板表头搜索源文档内容，提取上下文并补充字段
@@ -370,6 +370,9 @@ public class TemplateFillServiceImpl implements TemplateFillService {
         List<FillAuditLogEntity> auditLogs = new ArrayList<>();
         int filledCount = 0;
         int blankCount = 0;
+
+        // 跟踪同名槽位已使用的值，用于多表场景中避免重复填入相同值
+        Map<String, Set<String>> labelUsedValues = new HashMap<>();
 
         // 检查是否有header_below槽位可通过directTableCopy处理，避免昂贵的逐槽LLM调用
         boolean hasHeaderBelowSlots = slots.stream().anyMatch(s -> "header_below".equals(s.getSlotType()));
@@ -426,8 +429,24 @@ public class TemplateFillServiceImpl implements TemplateFillService {
             // 阶段4：候选召回
             List<CandidateResult> candidates = recallCandidates(slot, allFields, allFieldsRaw, aliasDict, userRequirement, requirementDocScores);
 
-            // 阶段5：难例判定（超时则跳过LLM，使用总预算的85%作为截止线）
-            boolean timeExceeded = (System.currentTimeMillis() - fillStartTime) > (long)(maxFillTimeMs * 0.85);
+            // 多表去重：如果同一标签已在其他表中使用某个值，优先选择未使用的候选
+            String slotLabel = slot.getLabel().trim();
+            Set<String> usedVals = labelUsedValues.getOrDefault(slotLabel, Collections.emptySet());
+            if (!usedVals.isEmpty() && candidates.size() > 1) {
+                // 将未使用过的候选排在前面
+                List<CandidateResult> unused = candidates.stream()
+                        .filter(c -> !usedVals.contains(c.field.getFieldValue().trim()))
+                        .collect(Collectors.toList());
+                if (!unused.isEmpty()) {
+                    List<CandidateResult> reordered = new ArrayList<>(unused);
+                    candidates.stream().filter(c -> usedVals.contains(c.field.getFieldValue().trim()))
+                            .forEach(reordered::add);
+                    candidates = reordered;
+                }
+            }
+
+            // 阶段5：难例判定（超时则跳过LLM，使用总预算的70%作为截止线）
+            boolean timeExceeded = (System.currentTimeMillis() - fillStartTime) > (long)(maxFillTimeMs * 0.70);
             FillDecisionEntity decision = makeDecision(slot, candidates, timeExceeded);
 
             // 阶段5.5：复合标签处理（如"国家/地区"→分别匹配并合并值）
@@ -448,6 +467,12 @@ public class TemplateFillServiceImpl implements TemplateFillService {
             decision.setAuditId(auditId);
             fillDecisionMapper.insert(decision);
             decisions.add(decision);
+
+            // 记录已使用的值，供同名槽位多表去重
+            if (decision.getFinalValue() != null && !decision.getFinalValue().isEmpty()) {
+                labelUsedValues.computeIfAbsent(slotLabel, k -> new HashSet<>())
+                        .add(decision.getFinalValue().trim());
+            }
 
             // 计数
             if (decision.getFinalValue() != null && !decision.getFinalValue().isEmpty()) {
@@ -513,7 +538,7 @@ public class TemplateFillServiceImpl implements TemplateFillService {
 
         // 终极兜底：对剩余空白槽位使用LLM从源文档直接提取（仅在时间充裕时执行）
         long elapsedBeforeFallback = System.currentTimeMillis() - fillStartTime;
-        if (blankCount > 0 && !allFields.isEmpty() && elapsedBeforeFallback < maxFillTimeMs * 0.75) {
+        if (blankCount > 0 && !allFields.isEmpty() && elapsedBeforeFallback < maxFillTimeMs * 0.55) {
             log.info("贪心匹配后仍有{}个空白槽位，启用LLM终极兜底(已耗时{}ms)", blankCount, elapsedBeforeFallback);
             try {
                 StringBuilder sourceContent = new StringBuilder();
@@ -1131,8 +1156,10 @@ public class TemplateFillServiceImpl implements TemplateFillService {
                 reqScore = Math.max(fieldReqScore, docReqScore * 0.9);
             }
 
-            // 计算综合得分
-            double score = 0.34 * aliasScore + 0.18 * typeScore + 0.16 * voteScore + 0.10 * contextScore + 0.08 * confScore + 0.14 * reqScore;
+            // 计算综合得分 — 当有用户需求时提高需求匹配权重
+            double baseReqWeight = hasRequirement ? 0.22 : 0.14;
+            double baseAliasWeight = hasRequirement ? 0.30 : 0.34;
+            double score = baseAliasWeight * aliasScore + 0.15 * typeScore + 0.13 * voteScore + 0.10 * contextScore + 0.08 * confScore + baseReqWeight * reqScore;
 
             if (hasRequirement && reqScore <= -0.50 && aliasScore < 0.50) {
                 continue;
@@ -1211,12 +1238,15 @@ public class TemplateFillServiceImpl implements TemplateFillService {
         // 判定是否需要调用LLM
         if (candidates.size() >= 2) {
             CandidateResult top2 = candidates.get(1);
-            // 条件1: Top1和Top2分差 < 0.05 且候选值不同
+            // 条件1: Top1和Top2分差 < 0.05 且候选值不同 且Top1别名得分不高
             if (top1.score - top2.score < 0.05
-                    && !Objects.equals(top1.field.getFieldValue(), top2.field.getFieldValue())) needLlm = true;
+                    && !Objects.equals(top1.field.getFieldValue(), top2.field.getFieldValue())
+                    && top1.aliasScore < 0.80) needLlm = true;
         }
         // 条件2: Top1分数太低且别名中等
         if (top1.score < 0.30 && top1.aliasScore < 0.4) needLlm = true;
+        // 跳过LLM：当别名完全匹配(>=0.90)时规则结果已足够可靠
+        if (top1.aliasScore >= 0.90) needLlm = false;
 
         if (needLlm && !skipLlm) {
             try {
@@ -2205,7 +2235,7 @@ public class TemplateFillServiceImpl implements TemplateFillService {
                     slotsByTable.computeIfAbsent(tableIdx, k -> new ArrayList<>()).add(slot);
                 }
 
-                // 提取每个表格上方段落中的城市名称，用于筛选数据
+                // 提取每个表格上方段落 + 表格内已有数据 作为上下文，用于筛选和排序数据
                 Map<Integer, String> tableContextText = new HashMap<>();
                 List<org.apache.poi.xwpf.usermodel.IBodyElement> bodyElements = doc.getBodyElements();
                 for (int i = 0; i < bodyElements.size(); i++) {
@@ -2224,6 +2254,18 @@ public class TemplateFillServiceImpl implements TemplateFillService {
                                     break; // 遇到非段落元素停止
                                 }
                             }
+                            // 收集表格内已有文本（表头+已填写的数据行）
+                            XWPFTable tbl = tables.get(tableIdx);
+                            for (int r = 0; r < Math.min(tbl.getRows().size(), 5); r++) {
+                                XWPFTableRow row = tbl.getRows().get(r);
+                                for (var cell : row.getTableCells()) {
+                                    String cellText = cell.getText();
+                                    if (cellText != null && !cellText.isBlank()) {
+                                        ctx.append(cellText).append(" ");
+                                    }
+                                }
+                                ctx.append("\n");
+                            }
                             tableContextText.put(tableIdx, ctx.toString());
                         }
                     }
@@ -2233,6 +2275,7 @@ public class TemplateFillServiceImpl implements TemplateFillService {
                 // 策略：找到一列，使得每个表的段落文本匹配到该列的不同唯一值
                 Map<Integer, int[]> filterColMap = new HashMap<>();  // tableIdx -> [colIdx]
                 Map<Integer, String> filterValueMap = new HashMap<>(); // tableIdx -> filterValue
+                Map<Integer, List<String>> tableToSourceFiles = new HashMap<>(); // tableIdx -> 分配的源文件列表
 
                 if (slotsByTable.size() > 1) {
                     // 从源xlsx中收集每列的唯一值
@@ -2343,7 +2386,77 @@ public class TemplateFillServiceImpl implements TemplateFillService {
                             log.info("Word表格复制: table={}, 通用筛选: col={}, value={}", entry.getKey(), bestFilterCol, entry.getValue());
                         }
                     } else {
-                        log.info("Word表格复制: 未找到可区分各表的筛选列，不进行筛选");
+                        log.info("Word表格复制: 未找到可区分各表的筛选列，尝试按源文件名匹配表格");
+                    }
+
+                    // === 当列值筛选未成功且有多个源文件时，按文件名与表格上下文的相似度分配源文件到表格 ===
+                    if (bestAssignment == null && sourceExcelPaths.size() >= slotsByTable.size()) {
+                        // 对每个表的段落上下文与每个源文件名做相似匹配
+                        Map<Integer, Map<String, Double>> tableFileScores = new LinkedHashMap<>();
+                        for (int tableIdx2 : tableIdxList) {
+                            String ctx = tableContexts.getOrDefault(tableIdx2, "").toLowerCase();
+                            Map<String, Double> fileScores = new LinkedHashMap<>();
+                            for (String srcPath : sourceExcelPaths) {
+                                String fileName = new File(srcPath).getName().toLowerCase()
+                                        .replaceAll("\\.(xlsx|xls|csv)$", "")
+                                        .replaceAll("[_\\-\\s]+", "");
+                                double score = 0.0;
+                                // 文件名中的每个字符序列(>=2字)是否出现在上下文中
+                                for (int len = Math.min(fileName.length(), 10); len >= 2; len--) {
+                                    for (int start = 0; start <= fileName.length() - len; start++) {
+                                        String sub = fileName.substring(start, start + len);
+                                        if (ctx.contains(sub)) {
+                                            score = Math.max(score, (double) len / fileName.length());
+                                        }
+                                    }
+                                }
+                                fileScores.put(srcPath, score);
+                            }
+                            tableFileScores.put(tableIdx2, fileScores);
+                        }
+                        // 贪心分配：候选最少的表优先选择得分最高的文件
+                        Set<String> usedFiles = new HashSet<>();
+                        List<Integer> sortedTables2 = new ArrayList<>(tableIdxList);
+                        sortedTables2.sort((a, b) -> {
+                            long countA = tableFileScores.get(a).values().stream().filter(s -> s > 0).count();
+                            long countB = tableFileScores.get(b).values().stream().filter(s -> s > 0).count();
+                            return Long.compare(countA, countB);
+                        });
+                        boolean allAssigned = true;
+                        Map<Integer, String> fileAssignment = new LinkedHashMap<>();
+                        for (int tableIdx2 : sortedTables2) {
+                            Map<String, Double> scores = tableFileScores.get(tableIdx2);
+                            String bestFile = null;
+                            double bestScore2 = 0.0;
+                            for (Map.Entry<String, Double> fs : scores.entrySet()) {
+                                if (!usedFiles.contains(fs.getKey()) && fs.getValue() > bestScore2) {
+                                    bestScore2 = fs.getValue();
+                                    bestFile = fs.getKey();
+                                }
+                            }
+                            if (bestFile != null && bestScore2 > 0.0) {
+                                fileAssignment.put(tableIdx2, bestFile);
+                                usedFiles.add(bestFile);
+                            } else {
+                                allAssigned = false;
+                            }
+                        }
+                        if (!fileAssignment.isEmpty()) {
+                            for (Map.Entry<Integer, String> fa : fileAssignment.entrySet()) {
+                                tableToSourceFiles.computeIfAbsent(fa.getKey(), k -> new ArrayList<>()).add(fa.getValue());
+                                log.info("Word表格复制: table={}, 按文件名匹配源文件: {}", fa.getKey(), fa.getValue());
+                            }
+                            // 未分配的源文件加入所有未分配表
+                            List<String> unassignedFiles = sourceExcelPaths.stream()
+                                    .filter(p -> !usedFiles.contains(p)).collect(Collectors.toList());
+                            if (!unassignedFiles.isEmpty()) {
+                                for (int tableIdx2 : tableIdxList) {
+                                    if (!fileAssignment.containsKey(tableIdx2)) {
+                                        tableToSourceFiles.computeIfAbsent(tableIdx2, k -> new ArrayList<>()).addAll(unassignedFiles);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -2371,7 +2484,10 @@ public class TemplateFillServiceImpl implements TemplateFillService {
                     int totalCopied = 0;
                     int maxRows = targetTable.getRows().size() - 1; // 排除表头行
 
-                    for (String srcPath : sourceExcelPaths) {
+                    // 确定此表应使用的源文件列表
+                    List<String> tableSrcPaths = tableToSourceFiles.getOrDefault(tableIdx, sourceExcelPaths);
+
+                    for (String srcPath : tableSrcPaths) {
                         if (!new File(srcPath).exists()) continue;
 
                         try (FileInputStream srcFis = new FileInputStream(srcPath);
@@ -2474,8 +2590,177 @@ public class TemplateFillServiceImpl implements TemplateFillService {
                     }
                 }
 
-                // === 合并多表到第一张表 ===
-                if (filledTables.size() > 1) {
+                // === 非Excel源文档数据填入Word表格：从docx/md/txt源文档的已提取字段或LLM提取结构化数据 ===
+                if (allFields != null && !allFields.isEmpty()) {
+                    // 找出非Excel源文档的字段
+                    Set<Long> excelDocIds = new HashSet<>();
+                    for (ExtractedFieldEntity f : allFields) {
+                        SourceDocumentEntity srcDoc = sourceDocumentMapper.selectById(f.getDocId());
+                        if (srcDoc != null && srcDoc.getStoragePath() != null) {
+                            String sp = srcDoc.getStoragePath().toLowerCase();
+                            if (sp.endsWith(".xlsx") || sp.endsWith(".xls") || sp.endsWith(".csv")) {
+                                excelDocIds.add(f.getDocId());
+                            }
+                        }
+                    }
+                    List<ExtractedFieldEntity> nonExcelFields = allFields.stream()
+                            .filter(f -> !excelDocIds.contains(f.getDocId()))
+                            .collect(Collectors.toList());
+
+                    if (!nonExcelFields.isEmpty()) {
+                        log.info("Word表格: 发现{}个非Excel源文档字段，尝试LLM填充", nonExcelFields.size());
+                        for (Map.Entry<Integer, List<TemplateSlotEntity>> entry2 : slotsByTable.entrySet()) {
+                            int tableIdx2 = entry2.getKey();
+                            List<TemplateSlotEntity> tableSlots2 = entry2.getValue();
+                            if (tableIdx2 >= tables.size()) continue;
+                            XWPFTable targetTable2 = tables.get(tableIdx2);
+                            int maxDataRows = targetTable2.getRows().size() - 1;
+
+                            // 检查此表是否还有空的数据行
+                            int emptyStartRow = 1;
+                            for (int r = 1; r <= maxDataRows; r++) {
+                                XWPFTableRow row = targetTable2.getRows().get(r);
+                                boolean hasData = false;
+                                for (var cell : row.getTableCells()) {
+                                    if (cell.getText() != null && !cell.getText().trim().isEmpty()) {
+                                        hasData = true; break;
+                                    }
+                                }
+                                if (hasData) emptyStartRow = r + 1;
+                                else break;
+                            }
+                            if (emptyStartRow > maxDataRows) continue; // 表已满
+
+                            // 收集列标签
+                            List<String> colLabels = new ArrayList<>();
+                            Map<String, Integer> colMap = new LinkedHashMap<>();
+                            for (TemplateSlotEntity s : tableSlots2) {
+                                if (s.getPosition() == null || s.getLabel() == null) continue;
+                                JSONObject pos = JSON.parseObject(s.getPosition());
+                                colMap.put(s.getLabel().trim(), pos.getIntValue("col"));
+                                colLabels.add(s.getLabel().trim());
+                            }
+
+                            // 收集非Excel源文档的原始文本
+                            StringBuilder srcText = new StringBuilder();
+                            Set<Long> seenDocs = new HashSet<>();
+                            for (ExtractedFieldEntity f : nonExcelFields) {
+                                if (seenDocs.add(f.getDocId())) {
+                                    SourceDocumentEntity srcDoc = sourceDocumentMapper.selectById(f.getDocId());
+                                    if (srcDoc != null && srcDoc.getStoragePath() != null) {
+                                        try {
+                                            String text = readDocumentText(srcDoc.getStoragePath(), srcDoc.getFileType());
+                                            if (text != null && !text.isBlank()) srcText.append(text).append("\n");
+                                        } catch (Exception e) {
+                                            log.warn("读取非Excel源文档失败: {}", e.getMessage());
+                                        }
+                                    }
+                                }
+                            }
+                            if (srcText.length() == 0) continue;
+
+                            String content = srcText.toString();
+                            if (content.length() > 12000) content = content.substring(0, 12000);
+
+                            String reqHint = "";
+                            if (userRequirement != null && !userRequirement.isBlank()) {
+                                reqHint = "\n用户筛选条件：" + userRequirement + "\n请只提取满足上述条件的数据行。";
+                            }
+                            // 获取此表上方段落文本+已有单元格数据作为上下文提示
+                            String tableCtx = tableContextText.getOrDefault(tableIdx2, "");
+                            String ctxHint = "";
+                            if (!tableCtx.isBlank()) {
+                                ctxHint = "\n此表格的上下文信息（包括标题和表格中已有数据）：\n" + tableCtx.trim() +
+                                        "\n【重要】请仅提取与上述表格上下文相关的数据，不要提取属于其他表格的数据。";
+                            }
+
+                            String prompt = "你是专业的数据提取助手。请从以下文档中提取结构化表格数据。\n\n" +
+                                    "文档内容：\n" + content + "\n\n" +
+                                    reqHint + ctxHint +
+                                    "\n请按以下表头列提取数据，每个主要实体独立一行：\n" +
+                                    "表头列：" + String.join("、", colLabels) + "\n\n" +
+                                    "【规则】\n" +
+                                    "1. 返回JSON数组，每个元素的key必须与表头列名完全一致\n" +
+                                    "2. 数值只填纯数字和单位，不附加解释文字\n" +
+                                    "3. 每个实体的每一列都必须认真查找数据，不要遗漏\n" +
+                                    "4. 如果上下文中提到了地名、类别等限定信息，请严格只提取该地区/类别的数据\n" +
+                                    "5. 只返回JSON数组，不要其他文字\n" +
+                                    "示例：[{\"列1\":\"值1\",\"列2\":\"值2\"}]";
+
+                            String resp = safeLlmCall(prompt, 30_000);
+                            if (resp != null && !resp.isBlank()) {
+                                try {
+                                    String jsonStr = extractJsonFromResponse(resp);
+                                    com.alibaba.fastjson.JSONArray rows = JSON.parseArray(jsonStr);
+                                    if (rows != null && !rows.isEmpty()) {
+                                        int written = 0;
+                                        for (int i = 0; i < rows.size() && (emptyStartRow + written) <= maxDataRows; i++) {
+                                            JSONObject rowData = rows.getJSONObject(i);
+                                            if (rowData == null) continue;
+
+                                            int destRowIdx = emptyStartRow + written;
+                                            XWPFTableRow destRow = targetTable2.getRows().get(destRowIdx);
+                                            var destCells = destRow.getTableCells();
+                                            boolean rowHasData = false;
+
+                                            for (Map.Entry<String, Integer> cm : colMap.entrySet()) {
+                                                String val = rowData.getString(cm.getKey());
+                                                if (val == null || val.isBlank()) {
+                                                    // 模糊匹配key
+                                                    for (String key : rowData.keySet()) {
+                                                        if (key.contains(cm.getKey()) || cm.getKey().contains(key)) {
+                                                            val = rowData.getString(key);
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                                if (val == null || val.isBlank()) continue;
+                                                int col = cm.getValue();
+                                                if (col >= destCells.size()) continue;
+
+                                                var destCell = destCells.get(col);
+                                                if (!destCell.getParagraphs().isEmpty()) {
+                                                    XWPFParagraph para = destCell.getParagraphs().get(0);
+                                                    List<XWPFRun> runs = para.getRuns();
+                                                    if (runs.isEmpty()) {
+                                                        para.createRun().setText(val);
+                                                    } else {
+                                                        runs.get(0).setText(val, 0);
+                                                    }
+                                                    rowHasData = true;
+                                                }
+                                            }
+                                            if (rowHasData) written++;
+                                        }
+
+                                        if (written > 0) {
+                                            filledTables.add(tableIdx2);
+                                            log.info("Word表格LLM填充: table={}, 从非Excel源文档写入{}行", tableIdx2, written);
+                                            for (TemplateSlotEntity s : tableSlots2) {
+                                                FillDecisionEntity d = decisionMap.get(s.getId().toString());
+                                                if (d != null) {
+                                                    String prev = d.getFinalValue();
+                                                    String newVal = (prev != null && !prev.isEmpty() ? prev + " + " : "") + "LLM提取" + written + "行";
+                                                    d.setFinalValue(newVal);
+                                                    d.setFinalConfidence(new BigDecimal("0.85"));
+                                                    d.setDecisionMode("llm_multi_row_word");
+                                                    fillDecisionMapper.updateById(d);
+                                                }
+                                            }
+                                        }
+                                    }
+                                } catch (Exception e) {
+                                    log.warn("Word表格LLM填充解析失败(table={}): {}", tableIdx2, e.getMessage());
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // === 合并多表到第一张表（仅当没有按表分配源文件或筛选条件时） ===
+                // 当每个表有独立的数据源（按文件名匹配或列值筛选），表格应保持独立不合并
+                boolean hasPerTableAssignment = !filterValueMap.isEmpty() || !tableToSourceFiles.isEmpty();
+                if (filledTables.size() > 1 && !hasPerTableAssignment) {
                     List<Integer> sortedTables = new ArrayList<>(filledTables);
                     Collections.sort(sortedTables);
                     int firstTableIdx = sortedTables.get(0);
@@ -2933,9 +3218,9 @@ public class TemplateFillServiceImpl implements TemplateFillService {
         }
 
         // === 步骤4: 使用LLM对剩余缺失字段进行精准上下文提取 ===
-        // 时间预算检查：如果已用超过总预算的60%，跳过LLM提取避免超时
+        // 时间预算检查：如果已用超过总预算的40%，跳过LLM提取避免超时
         long elapsedMs = System.currentTimeMillis() - fillStartTime;
-        if (elapsedMs > maxFillTimeMs * 0.6) {
+        if (elapsedMs > maxFillTimeMs * 0.4) {
             log.info("表头引导提取: 已耗时{}ms，跳过LLM步骤以确保填表在时间预算内完成", elapsedMs);
             return supplementary;
         }

@@ -22,4 +22,11 @@ public interface LlmService {
     default String generateText(String prompt, String provider, String model) {
         return generateText(prompt);
     }
+
+    /**
+     * 多模态文本生成：支持文本+图片输入（用于VL模型）
+     */
+    default String generateMultiModalText(String prompt, List<String> imageBase64List, String provider, String model) {
+        return generateText(prompt, provider, model);
+    }
 }

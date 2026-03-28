@@ -20,6 +20,7 @@ import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
+import org.apache.poi.xwpf.usermodel.XWPFPictureData;
 import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.apache.poi.xwpf.usermodel.XWPFTableRow;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -478,7 +479,7 @@ public class ExtractionServiceImpl implements ExtractionService {
 
     /**
      * 调用LLM进行结构化抽取（阶段1）
-     * 使用DashScope的通义千问模型
+     * 使用Qwen2.5-VL-7B-Instruct多模态模型，支持文本+图像理解
      */
     private List<ExtractedFieldEntity> callLlmExtract(Long docId, String textContent, String fileName) {
         // 截断过长文本，保留更多内容以确保关键字段不丢失
@@ -488,12 +489,25 @@ public class ExtractionServiceImpl implements ExtractionService {
 
         String prompt = buildExtractionPrompt(textContent, fileName);
 
+        // 尝试从docx提取图片（VL模型可识别文档中的图像内容）
+        List<String> imageBase64List = new ArrayList<>();
+        String fileType = getFileType(fileName);
+        if ("docx".equals(fileType)) {
+            imageBase64List = extractImagesFromDocx(docId);
+        }
+
         String response;
         try {
-            // 使用qwen-turbo进行提取，速度快且成本低，同时保证提取准确率
-            response = llmService.generateText(prompt, "dashscope", "qwen-turbo");
+            if (!imageBase64List.isEmpty()) {
+                // 有图片时使用VL多模态模型，可识别图中的表格、文字等
+                log.info("文档含{}张图片，使用VL多模态模型提取", imageBase64List.size());
+                response = llmService.generateMultiModalText(prompt, imageBase64List, "dashscope", "qwen2.5-vl-7b-instruct");
+            } else {
+                // 纯文本使用VL模型（兼容纯文本输入，提取能力优于turbo）
+                response = llmService.generateText(prompt, "dashscope", "qwen2.5-vl-7b-instruct");
+            }
         } catch (Exception e) {
-            log.error("LLM抽取调用失败: {}", e.getMessage());
+            log.error("VL模型抽取调用失败，降级规则提取: {}", e.getMessage());
             return ruleBasedExtract(docId, textContent);
         }
         List<ExtractedFieldEntity> parsed = parseExtractionResponse(docId, response);
@@ -501,6 +515,44 @@ public class ExtractionServiceImpl implements ExtractionService {
             return ruleBasedExtract(docId, textContent);
         }
         return parsed;
+    }
+
+    /**
+     * 从docx文件中提取嵌入的图片，返回base64编码列表
+     * 用于发送给VL多模态模型进行图像内容识别
+     */
+    private List<String> extractImagesFromDocx(Long docId) {
+        List<String> images = new ArrayList<>();
+        try {
+            SourceDocumentEntity doc = sourceDocumentMapper.selectById(docId);
+            if (doc == null || doc.getStoragePath() == null) return images;
+
+            try (FileInputStream fis = new FileInputStream(doc.getStoragePath());
+                 XWPFDocument document = new XWPFDocument(fis)) {
+                List<XWPFPictureData> pictures = document.getAllPictures();
+                if (pictures == null || pictures.isEmpty()) return images;
+
+                // 限制最多2张图片（API限制）
+                int maxImages = Math.min(pictures.size(), 2);
+                for (int i = 0; i < maxImages; i++) {
+                    XWPFPictureData pic = pictures.get(i);
+                    byte[] data = pic.getData();
+                    // 跳过太小的图片（可能是图标/装饰）
+                    if (data.length < 1024) continue;
+                    // 跳过超过10MB的图片
+                    if (data.length > 10 * 1024 * 1024) continue;
+
+                    String base64 = java.util.Base64.getEncoder().encodeToString(data);
+                    String mimeType = pic.getPackagePart().getContentType();
+                    if (mimeType == null || mimeType.isBlank()) mimeType = "image/png";
+                    images.add("data:" + mimeType + ";base64," + base64);
+                }
+                log.info("从docx提取到{}张图片(共{}张)用于VL识别", images.size(), pictures.size());
+            }
+        } catch (Exception e) {
+            log.warn("docx图片提取失败: {}", e.getMessage());
+        }
+        return images;
     }
 
     /**
@@ -726,7 +778,7 @@ public class ExtractionServiceImpl implements ExtractionService {
 
     private String buildExtractionPrompt(String textContent, String fileName) {
         return """
-                你是一个专业的文档信息抽取助手。请从以下文档内容中完整抽取所有关键字段信息。
+                你是一个专业的文档信息抽取助手，擅长从非结构化文档中完整提取所有关键信息。请仔细阅读以下文档内容，完整抽取每一个有价值的字段。
                 
                 文件名：%s
                 
@@ -748,17 +800,25 @@ public class ExtractionServiceImpl implements ExtractionService {
                   ]
                 }
                 
-                抽取要求：
-                1. 完整抽取文档中所有信息字段，不遗漏
+                抽取要求（极其重要，必须严格遵守）：
+                1. 完整抽取文档中所有信息字段，不遗漏任何一个。宁可多抽也不能少抽
                 2. 重点抽取以下字段类别：
-                   - 项目/文档信息、人员信息、机构信息、联系方式
-                   - 时间日期、经费金额、地理信息（国家/省/城市）
-                   - 数量信息（人口、面积、GDP等）
-                3. 对于重复出现的同类字段（如多个省份、多个国家），每个值都应独立抽取为单独的field对象
-                4. 表格/列表数据：每行每个字段独立提取，不要合并多个值
-                5. field_key使用英文下划线格式（如country、population、gdp_per_capita）
-                6. 不要编造信息，字段值必须来自原文
-                7. 为减少输出量，省略source_text和aliases字段
+                   - 项目/文档信息（项目名称、编号、类型、级别等）
+                   - 人员信息（负责人、联系人、姓名、性别、年龄、学历、职称、身份证号等）
+                   - 机构信息（单位名称、部门、院系等）
+                   - 联系方式（电话、邮箱、传真、地址、邮编等）
+                   - 时间日期（开始时间、结束时间、申报日期等）
+                   - 经费金额（预算、资助金额等）
+                   - 地理信息（国家、省份、城市、地区等）
+                   - 统计数据（人口、面积、GDP、数量等）
+                   - 描述性信息（简介、摘要、关键词、研究方向等）
+                3. 对于表格数据，每行每个单元格的值都应独立抽取。不要合并同类项
+                4. 对于重复出现的同类字段（如多个省份、多个国家），每个值都应独立为单独的field
+                5. 如果文档中有图片（已一并提供），请识别图片中的文字、表格数据并同样提取
+                6. field_key使用英文下划线格式（如project_name、population、gdp_per_capita）
+                7. 不要编造信息，字段值必须来自原文
+                8. 为减少输出量，省略source_text和aliases字段
+                9. 日期请保持原文格式，数值请保持原始精度
                 """.formatted(fileName, textContent);
     }
 

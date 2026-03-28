@@ -20,6 +20,17 @@ public interface LlmProvider {
         return generateText(prompt);
     }
 
+    /**
+     * 多模态文本生成：支持文本+图片（base64）输入
+     * @param prompt 文本提示词
+     * @param imageBase64List 图片base64编码列表（可为空）
+     * @param modelName 模型名称
+     * @return 模型生成的文本
+     */
+    default String generateMultiModalText(String prompt, List<String> imageBase64List, String modelName) {
+        return generateText(prompt, modelName);
+    }
+
     // 返回该提供商支持的模型列表
     default List<String> getSupportedModels() {
         return List.of();

@@ -1,0 +1,7 @@
+<RCC>
+    <qresource prefix="/">
+        <file>style.qss</file>
+        <file>docai.ico</file>
+        <file>check.png</file>
+    </qresource>
+</RCC>

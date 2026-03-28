@@ -127,6 +127,15 @@ export const aiChat = async ({ message, documentId, signal }) => {
 
   if (!response.ok || !response.body) {
     clearTimeout(timeoutId)
+    // 处理SSE请求的401令牌过期
+    if (response.status === 401) {
+      localStorage.removeItem('token')
+      localStorage.removeItem('userId')
+      localStorage.removeItem('username')
+      localStorage.removeItem('nickname')
+      window.location.href = '/login'
+      throw new Error('登录已过期，请重新登录')
+    }
     const text = await response.text().catch(() => '')
     throw new Error(text || `请求失败(${response.status})`)
   }

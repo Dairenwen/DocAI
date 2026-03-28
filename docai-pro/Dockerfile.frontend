@@ -1,0 +1,13 @@
+FROM node:18-alpine AS builder
+WORKDIR /frontend
+
+COPY docai-frontend/package*.json ./
+RUN npm install
+
+COPY docai-frontend/ ./
+RUN npm run build
+
+FROM nginx:1.24.0
+COPY docai-pro/deploy/nginx/conf/nginx.allin.conf /etc/nginx/nginx.conf
+COPY --from=builder /frontend/dist /data/docaidata/web/dist
+EXPOSE 8080

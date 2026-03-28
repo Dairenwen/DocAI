@@ -1,0 +1,18 @@
+FROM maven:3.9.9-eclipse-temurin-17 AS builder
+WORKDIR /build
+
+COPY docai-pro /build/docai-pro
+RUN mvn -f /build/docai-pro/pom.xml -DskipTests clean package
+
+FROM eclipse-temurin:17-jre
+WORKDIR /app
+
+COPY --from=builder /build/docai-pro/user-service/target/user-service-1.0.0.jar /app/user-service.jar
+COPY --from=builder /build/docai-pro/file-service/target/file-service-1.0.0-exec.jar /app/file-service.jar
+COPY --from=builder /build/docai-pro/ai-service/target/ai-service-1.0.0.jar /app/ai-service.jar
+COPY --from=builder /build/docai-pro/gateway-service/target/gateway-service-1.0.0.jar /app/gateway-service.jar
+COPY --from=builder /build/docai-pro/docker/entrypoint.sh /entrypoint.sh
+
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
