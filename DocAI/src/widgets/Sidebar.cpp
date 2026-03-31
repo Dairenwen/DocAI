@@ -12,20 +12,21 @@ Sidebar::Sidebar(QWidget *parent) : QWidget(parent) {
     initFloatingChars();
     m_floatTimer = new QTimer(this);
     connect(m_floatTimer, &QTimer::timeout, this, &Sidebar::animateFloatingChars);
-    m_floatTimer->start(40);
+    m_floatTimer->start(30); // faster interval
 }
 
 void Sidebar::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
-    // Clip to bottom-left rounded corner
+    // Clip to top-left and bottom-left rounded corners
     QPainterPath path;
-    path.moveTo(0, 0);
-    path.lineTo(width(), 0);
+    path.moveTo(10, 0);
+    path.arcTo(QRectF(0, 0, 20, 20), 90, 90); // top-left corner
+    path.lineTo(0, height() - 10);
+    path.arcTo(QRectF(0, height() - 20, 20, 20), 180, 90); // bottom-left corner
     path.lineTo(width(), height());
-    path.lineTo(10, height());
-    path.arcTo(QRectF(0, height() - 20, 20, 20), 270, -90);
-    path.lineTo(0, 0);
+    path.lineTo(width(), 0);
+    path.closeSubpath();
     p.setClipPath(path);
     p.fillRect(rect(), QColor("#FFFFFF"));
 
@@ -56,21 +57,17 @@ void Sidebar::paintEvent(QPaintEvent *) {
 }
 
 void Sidebar::initFloatingChars() {
-    static const QStringList chars = {
-        "AI", "ML", "NLP", "Doc", "{}", "</>", "01", "//",
-        "API", "LLM", "OCR", "RAG", "Qt", "C++",
-        "\xe6\x96\x87", "\xe6\xa1\xa3", "\xe6\x99\xba", "\xe8\x83\xbd"
-    };
     m_floatChars.clear();
-    for (int i = 0; i < 15; i++) {
+    for (int i = 0; i < 18; i++) {
         SidebarFloatingChar fc;
-        fc.x = (qrand() % 900 + 50) / 1000.0;  // 0.05 .. 0.95
-        fc.y = (qrand() % 1000) / 1000.0;        // 0..1
-        fc.rotation = (qrand() % 60) - 30;        // -30..+30 degrees
-        fc.opacity = 0.04 + (qrand() % 8) / 100.0; // 0.04..0.12
-        fc.speed = 0.002 + (qrand() % 30) / 10000.0; // upward speed
-        fc.ch = chars[qrand() % chars.size()];
-        fc.size = 9 + (qrand() % 6);
+        fc.x = (qrand() % 900 + 50) / 1000.0;
+        fc.y = (qrand() % 1000) / 1000.0;
+        fc.rotation = (qrand() % 120) - 60; // -60..+60 degrees
+        fc.opacity = 0.06 + (qrand() % 10) / 100.0;
+        fc.speed = 0.003 + (qrand() % 40) / 10000.0; // faster
+        bool upper = qrand() % 2;
+        fc.ch = QString(QChar(upper ? 'A' + qrand() % 26 : 'a' + qrand() % 26));
+        fc.size = 8 + (qrand() % 9); // 8..16
         m_floatChars.append(fc);
     }
 }
@@ -78,24 +75,19 @@ void Sidebar::initFloatingChars() {
 void Sidebar::animateFloatingChars() {
     for (int i = 0; i < m_floatChars.size(); i++) {
         SidebarFloatingChar &fc = m_floatChars[i];
-        fc.y -= fc.speed; // float upward
-        // Fade out as it rises (deeper = more opaque at bottom)
-        fc.opacity = 0.12 * fc.y; // more transparent near top
+        fc.y -= fc.speed;
+        // Color gradient: #4F46E5 fading to white as it rises
+        fc.opacity = 0.15 * fc.y;
         if (fc.opacity < 0.01) fc.opacity = 0.01;
         if (fc.y < 0) {
-            // Reset to bottom with new random properties
             fc.y = 1.0;
             fc.x = (qrand() % 900 + 50) / 1000.0;
-            fc.rotation = (qrand() % 60) - 30;
-            fc.speed = 0.002 + (qrand() % 30) / 10000.0;
-            fc.opacity = 0.12;
-            static const QStringList chars = {
-                "AI", "ML", "NLP", "Doc", "{}", "</>", "01", "//",
-                "API", "LLM", "OCR", "RAG", "Qt", "C++",
-                "\xe6\x96\x87", "\xe6\xa1\xa3", "\xe6\x99\xba", "\xe8\x83\xbd"
-            };
-            fc.ch = chars[qrand() % chars.size()];
-            fc.size = 9 + (qrand() % 6);
+            fc.rotation = (qrand() % 120) - 60;
+            fc.speed = 0.003 + (qrand() % 40) / 10000.0;
+            fc.opacity = 0.15;
+            bool upper = qrand() % 2;
+            fc.ch = QString(QChar(upper ? 'A' + qrand() % 26 : 'a' + qrand() % 26));
+            fc.size = 8 + (qrand() % 9);
         }
     }
     update();

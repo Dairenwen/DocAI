@@ -19,6 +19,7 @@ class AutoFillPage : public QWidget {
     Q_OBJECT
 public:
     explicit AutoFillPage(QWidget *parent = nullptr);
+    void loadDocStats();
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
@@ -39,7 +40,6 @@ private:
     QWidget* createStep1();
     QWidget* createStep2();
     QWidget* createStep3();
-    void loadDocStats();
     void showResults();
     void rebuildTemplateList();
 

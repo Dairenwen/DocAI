@@ -35,6 +35,7 @@ HEADERS += \
     src/utils/IconHelper.h \
     src/utils/LoadingOverlay.h \
     src/utils/Toast.h \
+    src/utils/MarkdownRenderer.h \
     src/models/DataModels.h \
     src/network/ApiClient.h \
     src/network/SseClient.h \
@@ -51,6 +52,8 @@ RESOURCES += \
     src/resources/resources.qrc
 
 RC_FILE = docai.rc
+
+win32: LIBS += -luser32
 
 # Default rules for deployment.
 qnx: target.path = /tmp/$${TARGET}/bin

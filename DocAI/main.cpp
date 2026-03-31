@@ -8,6 +8,9 @@
 #include <QMessageBox>
 #include <QIcon>
 #include <QPainter>
+#include <QSslSocket>
+#include <QSslConfiguration>
+#include <QDebug>
 
 static QIcon createAppIcon() {
     QIcon icon;
@@ -63,6 +66,17 @@ int main(int argc, char *argv[])
     QApplication a(argc, argv);
     a.setApplicationName("DocAI");
     a.setOrganizationName("DocAI");
+
+    // SSL diagnostics
+    qDebug() << "SSL supported:" << QSslSocket::supportsSsl();
+    qDebug() << "SSL library build version:" << QSslSocket::sslLibraryBuildVersionString();
+    qDebug() << "SSL library runtime version:" << QSslSocket::sslLibraryVersionString();
+
+    // Global SSL config: skip certificate verification for tunnel/self-signed certs
+    QSslConfiguration sslConfig = QSslConfiguration::defaultConfiguration();
+    sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
+    sslConfig.setProtocol(QSsl::TlsV1_2OrLater);
+    QSslConfiguration::setDefaultConfiguration(sslConfig);
 
     // Singleton mode
     QLockFile lockFile(QDir::tempPath() + "/DocAI.lock");

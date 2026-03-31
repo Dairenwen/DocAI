@@ -18,6 +18,8 @@ QWidget {
     font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif;
     font-size: 14px;
     color: #111827;
+    selection-background-color: #3266D0;
+    selection-color: #FFFFFF;
 }
 
 /* ---- QPushButton ---- */
@@ -73,7 +75,8 @@ QLineEdit, QTextEdit {
     padding: 8px;
     font-size: 14px;
     color: #111827;
-    selection-background-color: #EEF2FF;
+    selection-background-color: #3266D0;
+    selection-color: #FFFFFF;
 }
 QLineEdit:focus, QTextEdit:focus {
     border-color: #4F46E5;
@@ -103,8 +106,8 @@ QComboBox QAbstractItemView {
     background: #FFFFFF;
     border: 1px solid #E5E7EB;
     border-radius: 10px;
-    selection-background-color: #EEF2FF;
-    selection-color: #111827;
+    selection-background-color: #3266D0;
+    selection-color: #FFFFFF;
     outline: none;
 }
 
@@ -164,8 +167,8 @@ QTableWidget::item, QTableView::item {
     border-bottom: 1px solid #F3F4F6;
 }
 QTableWidget::item:selected, QTableView::item:selected {
-    background: #EEF2FF;
-    color: #111827;
+    background: #3266D0;
+    color: #FFFFFF;
 }
 QHeaderView::section {
     background: #F9FAFB;
@@ -247,8 +250,8 @@ QListWidget::item {
     border-radius: 6px;
 }
 QListWidget::item:selected {
-    background: #EEF2FF;
-    color: #111827;
+    background: #3266D0;
+    color: #FFFFFF;
 }
 QListWidget::item:hover {
     background: #F9FAFB;

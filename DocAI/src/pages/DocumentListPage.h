@@ -21,6 +21,7 @@ public:
 
 signals:
     void navigateToChat(int docId, const QString &docName);
+    void documentsChanged();
 
 private slots:
     void loadDocuments();

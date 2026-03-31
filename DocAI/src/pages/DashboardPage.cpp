@@ -139,14 +139,22 @@ void DashboardPage::setupUI() {
 
     QHBoxLayout *guideRow = new QHBoxLayout;
     guideRow->setSpacing(16);
-    guideRow->addWidget(makeGuideStep(1, "upload", "\xe4\xb8\x8a\xe4\xbc\xa0\xe6\xba\x90\xe6\x96\x87\xe6\xa1\xa3",
-        "\xe4\xb8\x8a\xe4\xbc\xa0Word/Excel/\xe6\x96\x87\xe6\x9c\xac\xe6\x96\x87\xe6\xa1\xa3\n\xe7\xb3\xbb\xe7\xbb\x9f\xe8\x87\xaa\xe5\x8a\xa8\xe6\x8f\x90\xe5\x8f\x96\xe5\x85\xb3\xe9\x94\xae\xe4\xbf\xa1\xe6\x81\xaf", "#EEF2FF", 1));
-    guideRow->addWidget(makeGuideStep(2, "table", "\xe4\xb8\x8a\xe4\xbc\xa0\xe5\xa1\xab\xe8\xa1\xa8\xe6\xa8\xa1\xe6\x9d\xbf",
-        "\xe4\xb8\x8a\xe4\xbc\xa0\xe5\x90\xab\xe5\x8d\xa0\xe4\xbd\x8d\xe7\xac\xa6\xe7\x9a\x84\xe6\xa8\xa1\xe6\x9d\xbf\xe6\x96\x87\xe4\xbb\xb6\n\xe6\x94\xaf\xe6\x8c\x81Word\xe5\x92\x8c" "Excel\xe6\xa0\xbc\xe5\xbc\x8f", "#EEF2FF", 2));
-    guideRow->addWidget(makeGuideStep(3, "robot", "AI\xe6\x99\xba\xe8\x83\xbd\xe5\xa1\xab\xe5\x85\x85",
-        "AI\xe8\x87\xaa\xe5\x8a\xa8\xe5\x8c\xb9\xe9\x85\x8d\xe6\x8f\x90\xe5\x8f\x96\xe6\x95\xb0\xe6\x8d\xae\n\xe4\xb8\x80\xe9\x94\xae\xe5\xae\x8c\xe6\x88\x90\xe8\xa1\xa8\xe6\xa0\xbc\xe5\xa1\xab\xe5\x86\x99", "#D1FAE5", 2));
-    guideRow->addWidget(makeGuideStep(4, "download", "\xe4\xb8\x8b\xe8\xbd\xbd\xe7\xbb\x93\xe6\x9e\x9c",
-        "\xe9\xa2\x84\xe8\xa7\x88\xe5\xa1\xab\xe5\x85\x85\xe7\xbb\x93\xe6\x9e\x9c\n\xe4\xb8\x8b\xe8\xbd\xbd\xe6\x88\x96\xe5\x8f\x91\xe9\x80\x81\xe9\x82\xae\xe4\xbb\xb6", "#FEF3C7", 2));
+    guideRow->addWidget(makeGuideStep(1, "upload",
+        QString::fromUtf8("\xe4\xb8\x8a\xe4\xbc\xa0\xe6\xba\x90\xe6\x96\x87\xe6\xa1\xa3"),
+        QString::fromUtf8("\xe4\xb8\x8a\xe4\xbc\xa0Word/Excel/\xe6\x96\x87\xe6\x9c\xac\xe7\xad\x89\xe6\xba\x90\xe6\x96\x87\xe6\xa1\xa3\xe8\x87\xb3\xe7\xb3\xbb\xe7\xbb\x9f\xef\xbc\x8c" "AI\xe5\xb0\x86\xe8\x87\xaa\xe5\x8a\xa8\xe8\xbf\x9b\xe8\xa1\x8c\xe7\xbb\x93\xe6\x9e\x84\xe5\x8c\x96\xe4\xbf\xa1\xe6\x81\xaf\xe6\x8f\x90\xe5\x8f\x96\xef\xbc\x8c\xe8\xaf\x86\xe5\x88\xab\xe5\x85\xb3\xe9\x94\xae\xe5\xad\x97\xe6\xae\xb5\xe4\xb8\x8e\xe6\x95\xb0\xe6\x8d\xae"),
+        "#EEF2FF", 1));
+    guideRow->addWidget(makeGuideStep(2, "table",
+        QString::fromUtf8("\xe4\xb8\x8a\xe4\xbc\xa0\xe5\xa1\xab\xe8\xa1\xa8\xe6\xa8\xa1\xe6\x9d\xbf"),
+        QString::fromUtf8("\xe4\xb8\x8a\xe4\xbc\xa0\xe5\x90\xab{{\xe5\x8d\xa0\xe4\xbd\x8d\xe7\xac\xa6}}\xe7\x9a\x84\xe6\xa8\xa1\xe6\x9d\xbf\xe6\x96\x87\xe4\xbb\xb6\xef\xbc\x8c\xe6\x94\xaf\xe6\x8c\x81Word\xe5\x92\x8c" "Excel\xe6\xa0\xbc\xe5\xbc\x8f\xef\xbc\x8c\xe7\xb3\xbb\xe7\xbb\x9f\xe8\x87\xaa\xe5\x8a\xa8\xe8\xa7\xa3\xe6\x9e\x90\xe6\xa8\xa1\xe6\x9d\xbf\xe7\xbb\x93\xe6\x9e\x84"),
+        "#EEF2FF", 2));
+    guideRow->addWidget(makeGuideStep(3, "robot",
+        QString::fromUtf8("AI\xe6\x99\xba\xe8\x83\xbd\xe5\xa1\xab\xe5\x85\x85"),
+        QString::fromUtf8("AI\xe8\x87\xaa\xe5\x8a\xa8\xe5\x8c\xb9\xe9\x85\x8d\xe5\xb7\xb2\xe6\x8f\x90\xe5\x8f\x96\xe7\x9a\x84\xe6\x96\x87\xe6\xa1\xa3\xe6\x95\xb0\xe6\x8d\xae\xef\xbc\x8c\xe6\x99\xba\xe8\x83\xbd\xe5\xa1\xab\xe5\x85\x85\xe6\xa8\xa1\xe6\x9d\xbf\xe4\xb8\xad\xe7\x9a\x84\xe6\xaf\x8f\xe4\xb8\xaa\xe5\xad\x97\xe6\xae\xb5\xef\xbc\x8c\xe4\xb8\x80\xe9\x94\xae\xe5\xae\x8c\xe6\x88\x90\xe8\xa1\xa8\xe6\xa0\xbc\xe5\xa1\xab\xe5\x86\x99"),
+        "#D1FAE5", 2));
+    guideRow->addWidget(makeGuideStep(4, "download",
+        QString::fromUtf8("\xe4\xb8\x8b\xe8\xbd\xbd\xe7\xbb\x93\xe6\x9e\x9c"),
+        QString::fromUtf8("\xe5\x9c\xa8\xe7\xba\xbf\xe9\xa2\x84\xe8\xa7\x88\xe5\xa1\xab\xe5\x85\x85\xe7\xbb\x93\xe6\x9e\x9c\xef\xbc\x8c\xe7\xa1\xae\xe8\xae\xa4\xe6\x97\xa0\xe8\xaf\xaf\xe5\x90\x8e\xe5\x8f\xaf\xe7\x9b\xb4\xe6\x8e\xa5\xe4\xb8\x8b\xe8\xbd\xbd\xe6\x96\x87\xe4\xbb\xb6\xe6\x88\x96\xe9\x80\x9a\xe8\xbf\x87\xe9\x82\xae\xe4\xbb\xb6\xe5\x8f\x91\xe9\x80\x81"),
+        "#FEF3C7", 2));
 
     // ===== Core Modules =====
     QLabel *sectionTitle2 = new QLabel("核心功能模块 Core Modules");
@@ -306,7 +314,7 @@ void DashboardPage::setupUI() {
         {"\xe7\xb2\xbe\xe5\x87\x86\xe6\x8f\x90\xe5\x8f\x96", "AI \xe6\x99\xba\xe8\x83\xbd\xe8\xaf\x86\xe5\x88\xab\xe5\x85\xb3\xe9\x94\xae\xe4\xbf\xa1\xe6\x81\xaf", "#10B981"},
         {"\xe6\x89\xb9\xe9\x87\x8f\xe5\xa4\x84\xe7\x90\x86", "\xe5\xa4\x9a\xe6\xa8\xa1\xe6\x9d\xbf\xe4\xb8\x80\xe9\x94\xae\xe5\xa1\xab\xe5\x85\x85\xe5\xaf\xbc\xe5\x87\xba", "#F59E0B"},
         {"AI \xe5\xaf\xb9\xe8\xaf\x9d", "\xe8\x87\xaa\xe7\x84\xb6\xe8\xaf\xad\xe8\xa8\x80\xe6\xb7\xb1\xe5\xba\xa6\xe4\xba\xa4\xe4\xba\x92", "#8B5CF6"},
-        {"\xe5\xae\x89\xe5\x85\xa8\xe5\x8f\xaf\xe9\x9d\xa0", "\xe6\x95\xb0\xe6\x8d\xae\xe5\x8a\xa0\xe5\xaf\x86\xef\xbc\x8c\xe6\x9d\x83\xe9\x99\x90\xe6\x8e\xa7\xe5\x88\xb6", "#EF4444"},
+        {"\xe5\xae\x89\xe5\x85\xa8\xe5\x8f\xaf\xe9\x9d\xa0", "\xe6\x95\xb0\xe6\x8d\xae\xe5\x8a\xa0\xe5\xaf\x86\xef\xbc\x8c\xe6\x9d\x83\xe9\x99\x90\xe6\x8e\xa7\xe5\x88\xb6", "#0EA5E9"},
         {"\xe6\xa0\xbc\xe5\xbc\x8f\xe5\x85\xbc\xe5\xae\xb9", "Word/Excel/TXT/MD \xe7\xbb\x9f\xe4\xb8\x80\xe5\xa4\x84\xe7\x90\x86", "#06B6D4"},
     };
     QGridLayout *advGrid = new QGridLayout;
@@ -405,41 +413,56 @@ QWidget* DashboardPage::makeGuideStep(int num, const QString &icon, const QStrin
     card->setCursor(Qt::PointingHandCursor);
     card->setGraphicsEffect(makeShadow(card));
 
-    QVBoxLayout *v = new QVBoxLayout(card);
-    v->setContentsMargins(20, 20, 20, 20);
-    v->setSpacing(8);
+    QHBoxLayout *h = new QHBoxLayout(card);
+    h->setContentsMargins(16, 16, 16, 16);
+    h->setSpacing(14);
+
+    // Left badge: number + icon (rectangular)
+    QWidget *badgeWidget = new QWidget;
+    QVBoxLayout *badgeLay = new QVBoxLayout(badgeWidget);
+    badgeLay->setContentsMargins(0, 0, 0, 0);
+    badgeLay->setSpacing(6);
 
     QLabel *numLbl = new QLabel(QString::number(num));
     numLbl->setFixedSize(28, 28);
     numLbl->setAlignment(Qt::AlignCenter);
-    numLbl->setStyleSheet("background: #EEF2FF; color: #4F46E5; border-radius: 14px; font-size: 13px; font-weight: 700;");
+    numLbl->setStyleSheet("background: #EEF2FF; color: #4F46E5; border-radius: 6px; font-size: 14px; font-weight: 700;");
 
     // Map icon name to IconHelper pixmap
     QPixmap iconPix;
     QColor iconColor("#4F46E5");
-    if (icon == "upload") iconPix = IconHelper::upload(20, iconColor);
-    else if (icon == "table") iconPix = IconHelper::table(20, iconColor);
-    else if (icon == "robot") iconPix = IconHelper::robot(20, QColor("#10B981"));
-    else if (icon == "download") iconPix = IconHelper::download(20, QColor("#F59E0B"));
-    else iconPix = IconHelper::document(20, iconColor);
+    if (icon == "upload") iconPix = IconHelper::upload(24, iconColor);
+    else if (icon == "table") iconPix = IconHelper::table(24, iconColor);
+    else if (icon == "robot") iconPix = IconHelper::robot(24, QColor("#10B981"));
+    else if (icon == "download") iconPix = IconHelper::download(24, QColor("#F59E0B"));
+    else iconPix = IconHelper::document(24, iconColor);
 
     QLabel *iconLbl = new QLabel;
     iconLbl->setFixedSize(40, 40);
     iconLbl->setAlignment(Qt::AlignCenter);
     iconLbl->setPixmap(iconPix);
-    iconLbl->setStyleSheet(QString("background: %1; border-radius: 16px;").arg(bgColor));
+    iconLbl->setStyleSheet(QString("background: %1; border-radius: 8px;").arg(bgColor));
+
+    badgeLay->addWidget(numLbl, 0, Qt::AlignCenter);
+    badgeLay->addWidget(iconLbl, 0, Qt::AlignCenter);
+    badgeLay->addStretch();
+
+    // Right: title + description
+    QVBoxLayout *textLay = new QVBoxLayout;
+    textLay->setSpacing(4);
 
     QLabel *titleLbl = new QLabel(title);
     titleLbl->setStyleSheet("font-size: 14px; font-weight: 600; color: #111827;");
     QLabel *descLbl = new QLabel(desc);
     descLbl->setWordWrap(true);
-    descLbl->setStyleSheet("font-size: 12px; color: #9CA3AF;");
+    descLbl->setStyleSheet("font-size: 12px; color: #6B7280; line-height: 1.5;");
 
-    v->addWidget(numLbl);
-    v->addWidget(iconLbl);
-    v->addWidget(titleLbl);
-    v->addWidget(descLbl);
-    v->addStretch();
+    textLay->addWidget(titleLbl);
+    textLay->addWidget(descLbl);
+    textLay->addStretch();
+
+    h->addWidget(badgeWidget);
+    h->addLayout(textLay, 1);
 
     // Click handler
     card->installEventFilter(this);
@@ -505,7 +528,13 @@ bool DashboardPage::eventFilter(QObject *obj, QEvent *event) {
 
 void DashboardPage::refreshStats() {
     ApiClient::instance().getSourceDocuments([this](bool ok, const QJsonObject &data, const QString &) {
-        if (!ok) return;
+        if (!ok) {
+            m_totalLabel->setText("--");
+            m_docxLabel->setText("--");
+            m_xlsxLabel->setText("--");
+            m_txtLabel->setText("--");
+            return;
+        }
         QJsonArray docs = data["data"].toArray();
         int total = docs.size(), docx = 0, xlsx = 0, txt = 0;
         for (const auto &v : docs) {

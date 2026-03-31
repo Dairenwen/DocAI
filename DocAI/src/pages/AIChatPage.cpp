@@ -2,6 +2,7 @@
 #include "../network/ApiClient.h"
 #include "../utils/TokenManager.h"
 #include "../utils/IconHelper.h"
+#include "../utils/MarkdownRenderer.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -19,6 +20,9 @@
 #include <QInputDialog>
 #include <QTextBrowser>
 #include <QTextDocument>
+#include <QTextCursor>
+#include <QTextBlockFormat>
+#include <QTextOption>
 #include <QCheckBox>
 #include <QDateTime>
 #include <QTimer>
@@ -30,6 +34,85 @@
 #include <QRegularExpression>
 #include <QPainter>
 #include <QFrame>
+#include <cstdlib>
+#include <ctime>
+#include <cmath>
+
+// ===== Floating Letter Animation Widget =====
+class FloatingLetterWidget : public QWidget {
+public:
+    struct Letter {
+        QChar ch;
+        qreal x, y, startY, endY;
+        qreal angle;
+        qreal progress; // 0.0 to 1.0
+        int fontSize;
+    };
+
+    explicit FloatingLetterWidget(QWidget *parent = nullptr) : QWidget(parent) {
+        setFixedHeight(34);
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        std::srand(static_cast<unsigned>(std::time(nullptr)));
+        m_timer = new QTimer(this);
+        connect(m_timer, &QTimer::timeout, this, [this]() {
+            // Spawn letters at moderate rate
+            if (std::rand() % 3 == 0 && m_letters.size() < 30) spawnLetter();
+            // Update existing letters
+            for (int i = m_letters.size() - 1; i >= 0; --i) {
+                Letter &l = m_letters[i];
+                // Easing: OutCubic — smooth float upward
+                qreal t = l.progress;
+                qreal easedSpeed = 0.035 * (1.0 - t) * (1.0 - t);
+                l.progress = qMin(1.0, l.progress + qMax(easedSpeed, 0.004));
+                qreal easedT = 1.0 - (1.0 - l.progress) * (1.0 - l.progress) * (1.0 - l.progress);
+                l.y = l.startY - easedT * (l.startY - l.endY);
+                if (l.progress >= 1.0) m_letters.removeAt(i);
+            }
+            update();
+        });
+        m_timer->start(35);
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        for (const Letter &l : m_letters) {
+            // Color from #4F46E5 (rgb 79,70,229) to white, fading out
+            qreal t = l.progress;
+            int r = static_cast<int>(79 + (255 - 79) * t);
+            int g = static_cast<int>(70 + (255 - 70) * t);
+            int b = static_cast<int>(229 + (255 - 229) * t);
+            int alpha = static_cast<int>(200 * (1.0 - t));
+            p.save();
+            p.translate(l.x, l.y);
+            p.rotate(l.angle);
+            p.setPen(QColor(r, g, b, alpha));
+            QFont f("Consolas", l.fontSize);
+            f.setBold(true);
+            p.setFont(f);
+            p.drawText(0, 0, QString(l.ch));
+            p.restore();
+        }
+    }
+
+private:
+    void spawnLetter() {
+        Letter l;
+        bool upper = std::rand() % 2;
+        l.ch = QChar(upper ? 'A' + std::rand() % 26 : 'a' + std::rand() % 26);
+        l.x = std::rand() % qMax(width(), 1);
+        l.startY = height();
+        l.endY = 0;
+        l.angle = (std::rand() % 120) - 60; // -60 to +60 degrees
+        l.fontSize = 7 + std::rand() % 8; // 7 to 14
+        l.progress = 0;
+        m_letters.append(l);
+    }
+
+    QList<Letter> m_letters;
+    QTimer *m_timer;
+};
 
 AIChatPage::AIChatPage(QWidget *parent) : QWidget(parent), m_sse(new SseClient(this)) {
     setupUI();
@@ -229,30 +312,25 @@ void AIChatPage::setupUI() {
     m_chatTitleLabel = new QLabel("AI \xe6\x99\xba\xe8\x83\xbd\xe5\xaf\xb9\xe8\xaf\x9d");
     m_chatTitleLabel->setStyleSheet("font-size: 15px; font-weight: 600; color: #111827;");
 
-    QLabel *modelTag = new QLabel;
-    modelTag->setStyleSheet("font-size: 11px; color: #4F46E5; background: #EEF2FF; padding: 2px 8px; border-radius: 4px;");
-    modelTag->setText("AI");
-
     titleLayout->addWidget(logoLabel);
     titleLayout->addWidget(m_chatTitleLabel);
-    titleLayout->addWidget(modelTag);
     titleLayout->addStretch();
 
     m_modelCombo = new QComboBox;
-    m_modelCombo->setMinimumWidth(220);
-    m_modelCombo->setMinimumHeight(32);
+    m_modelCombo->setMinimumWidth(260);
+    m_modelCombo->setMinimumHeight(36);
     // Save chevron icon for combobox dropdown arrow
-    QPixmap chevron = IconHelper::chevronDown(12, QColor("#6B7280"));
+    QPixmap chevron = IconHelper::chevronDown(14, QColor("#6B7280"));
     QString chevronPath = QDir::temp().filePath("docai_chevron.png");
     chevron.save(chevronPath);
     m_modelCombo->setStyleSheet(
-        "QComboBox { border: 1px solid #E5E7EB; border-radius: 8px; padding: 4px 12px; font-size: 12px; color: #374151; background: #F9FAFB; }"
+        "QComboBox { border: 1px solid #E5E7EB; border-radius: 8px; padding: 6px 14px; font-size: 14px; color: #1F2937; background: #F9FAFB; font-weight: 500; }"
         "QComboBox:hover { border-color: #818CF8; background: #EEF2FF; }"
         "QComboBox:focus { border-color: #4F46E5; background: white; }"
-        "QComboBox::drop-down { border: none; width: 28px; subcontrol-position: right center; }"
-        "QComboBox::down-arrow { image: url(" + chevronPath + "); width: 12px; height: 12px; }"
-        "QComboBox QAbstractItemView { border: 1px solid #E5E7EB; border-radius: 8px; padding: 4px; background: white; selection-background-color: #EEF2FF; selection-color: #4F46E5; outline: none; }"
-        "QComboBox QAbstractItemView::item { padding: 6px 10px; border-radius: 4px; min-height: 28px; }"
+        "QComboBox::drop-down { border: none; width: 32px; subcontrol-position: right center; }"
+        "QComboBox::down-arrow { image: url(" + chevronPath + "); width: 14px; height: 14px; }"
+        "QComboBox QAbstractItemView { border: 1px solid #E5E7EB; border-radius: 8px; padding: 6px; background: white; selection-background-color: #EEF2FF; selection-color: #4F46E5; outline: none; }"
+        "QComboBox QAbstractItemView::item { padding: 8px 14px; border-radius: 6px; min-height: 32px; font-size: 14px; }"
         "QComboBox QAbstractItemView::item:hover { background: #F3F4F6; }");
 
     QPushButton *clearChatBtn = new QPushButton;
@@ -377,13 +455,27 @@ void AIChatPage::setupUI() {
     typingLayout->setContentsMargins(24, 4, 24, 4);
     typingLayout->setAlignment(Qt::AlignLeft);
 
-    QLabel *typingAvatar = new QLabel("AI");
+    QLabel *typingAvatar = new QLabel("D");
     typingAvatar->setFixedSize(32, 32);
     typingAvatar->setAlignment(Qt::AlignCenter);
-    typingAvatar->setStyleSheet("background: #EEF2FF; border-radius: 16px; font-size: 11px; color: #4F46E5; font-weight: bold;");
+    typingAvatar->setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #818CF8, stop:1 #4F46E5); border-radius: 16px; font-size: 13px; color: white; font-weight: bold;");
 
     QLabel *typingDots = new QLabel("\xe2\x80\xa2 \xe2\x80\xa2 \xe2\x80\xa2");
-    typingDots->setStyleSheet("font-size: 18px; color: #818CF8; background: white; border: 1px solid #F3F4F6; border-radius: 12px; padding: 8px 16px;");
+    typingDots->setStyleSheet("font-size: 18px; color: #818CF8; background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 12px; padding: 8px 16px;");
+
+    // Animate typing dots
+    QTimer *dotTimer = new QTimer(m_typingWidget);
+    int *dotState = new int(0);
+    connect(dotTimer, &QTimer::timeout, [typingDots, dotState]() {
+        (*dotState) = ((*dotState) + 1) % 4;
+        QString dots;
+        for (int i = 0; i < 3; i++) {
+            if (i <= *dotState) dots += "\xe2\x80\xa2 ";
+            else dots += "  ";
+        }
+        typingDots->setText(dots.trimmed());
+    });
+    dotTimer->start(400);
 
     typingLayout->addWidget(typingAvatar);
     typingLayout->addWidget(typingDots);
@@ -408,12 +500,12 @@ void AIChatPage::setupUI() {
 
     m_inputEdit = new QTextEdit;
     m_inputEdit->setFixedHeight(48);
-    m_inputEdit->setPlaceholderText(QString::fromUtf8("\xe8\xbe\x93\xe5\x85\xa5\xe6\xb6\x88\xe6\x81\xaf\xef\xbc\x8c") + "Ctrl+Enter " + QString::fromUtf8("\xe5\x8f\x91\xe9\x80\x81\xef\xbc\x8c") + "Enter " + QString::fromUtf8("\xe6\x8d\xa2\xe8\xa1\x8c") + "...");
+    m_inputEdit->setPlaceholderText(QString::fromUtf8("\xe8\xbe\x93\xe5\x85\xa5\xe6\xb6\x88\xe6\x81\xaf\xef\xbc\x8c") + "Enter " + QString::fromUtf8("\xe5\x8f\x91\xe9\x80\x81\xef\xbc\x8c") + "Shift+Enter " + QString::fromUtf8("\xe6\x8d\xa2\xe8\xa1\x8c"));
     m_inputEdit->installEventFilter(this);
     m_inputEdit->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_inputEdit->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_inputEdit->setStyleSheet(
-        "QTextEdit { border: 1.5px solid #D1D5DB; border-radius: 6px; padding: 10px 14px; font-size: 14px; }"
+        "QTextEdit { border: 1.5px solid #D1D5DB; border-radius: 6px; padding: 6px 14px; font-size: 14px; }"
         "QTextEdit:focus { border-color: #818CF8; }");
 
     m_sendBtn = new QPushButton("\xe5\x8f\x91\xe9\x80\x81");
@@ -437,18 +529,29 @@ void AIChatPage::setupUI() {
     inputLayout->addWidget(m_sendBtn);
     inputLayout->addWidget(m_stopBtn);
 
-    // Footer with char count
+    // Footer with floating letter animation and char count
     QWidget *inputFooter = new QWidget;
-    QHBoxLayout *footerLayout = new QHBoxLayout(inputFooter);
+    QVBoxLayout *footerLayout = new QVBoxLayout(inputFooter);
     footerLayout->setContentsMargins(0, 0, 0, 0);
-    QLabel *footerHint = new QLabel(QString::fromUtf8("\xe2\x9a\xa0 AI \xe7\x94\x9f\xe6\x88\x90\xe5\x86\x85\xe5\xae\xb9\xe4\xbb\x85\xe4\xbe\x9b\xe5\x8f\x82\xe8\x80\x83\xef\xbc\x8c\xe8\xaf\xb7\xe6\x82\xa8\xe6\xa0\xb8\xe5\xae\x9e\xe4\xbf\xa1\xe6\x81\xaf\xe5\x87\x86\xe7\xa1\xae\xe6\x80\xa7"));
+    footerLayout->setSpacing(0);
+
+    FloatingLetterWidget *floatingLetters = new FloatingLetterWidget;
+    footerLayout->addWidget(floatingLetters);
+
+    QWidget *footerInfoRow = new QWidget;
+    QHBoxLayout *footerInfoLayout = new QHBoxLayout(footerInfoRow);
+    footerInfoLayout->setContentsMargins(0, 0, 0, 0);
+    QLabel *footerHint = new QLabel(QString::fromUtf8("AI \xe7\x94\x9f\xe6\x88\x90\xe5\x86\x85\xe5\xae\xb9\xe4\xbb\x85\xe4\xbe\x9b\xe5\x8f\x82\xe8\x80\x83\xef\xbc\x8c\xe8\xaf\xb7\xe6\x82\xa8\xe6\xa0\xb8\xe5\xae\x9e\xe4\xbf\xa1\xe6\x81\xaf\xe5\x87\x86\xe7\xa1\xae\xe6\x80\xa7"));
     footerHint->setStyleSheet("font-size: 11px; color: #9CA3AF;");
+    footerHint->setAlignment(Qt::AlignCenter);
     m_charCountLabel = new QLabel;
     m_charCountLabel->setStyleSheet("font-size: 11px; color: #9CA3AF;");
     m_charCountLabel->setVisible(false);
-    footerLayout->addWidget(footerHint);
-    footerLayout->addStretch();
-    footerLayout->addWidget(m_charCountLabel);
+    footerInfoLayout->addStretch();
+    footerInfoLayout->addWidget(footerHint);
+    footerInfoLayout->addStretch();
+    footerInfoLayout->addWidget(m_charCountLabel);
+    footerLayout->addWidget(footerInfoRow);
 
     inputOuterLayout->addWidget(inputRow);
     inputOuterLayout->addWidget(inputFooter);
@@ -525,7 +628,6 @@ void AIChatPage::setupUI() {
             QJsonArray models = obj["models"].toArray();
             QString defaultModel = obj["defaultModel"].toString();
             if (models.isEmpty() && !defaultModel.isEmpty()) {
-                // Just add the default model
                 QString label = providerName + " / " + defaultModel;
                 if (!available) label += QString::fromUtf8(" [\xe4\xb8\x8d\xe5\x8f\xaf\xe7\x94\xa8]");
                 m_modelCombo->addItem(label, providerName + ":" + defaultModel);
@@ -559,6 +661,65 @@ void AIChatPage::setupUI() {
     });
 }
 
+void AIChatPage::createStreamingBubble() {
+    // Remove trailing stretch
+    QLayoutItem *lastItem = m_chatMsgLayout->itemAt(m_chatMsgLayout->count() - 1);
+    if (lastItem && lastItem->spacerItem()) {
+        m_chatMsgLayout->removeItem(lastItem);
+        delete lastItem;
+    }
+
+    m_streamingRow = new QWidget;
+    QHBoxLayout *rowLayout = new QHBoxLayout(m_streamingRow);
+    rowLayout->setContentsMargins(0, 0, 0, 0);
+    rowLayout->setSpacing(8);
+
+    // AI avatar
+    QLabel *avatar = new QLabel("D");
+    avatar->setFixedSize(32, 32);
+    avatar->setAlignment(Qt::AlignCenter);
+    avatar->setStyleSheet(
+        "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #818CF8, stop:1 #4F46E5);"
+        "border-radius: 16px; font-size: 13px; color: white; font-weight: bold;");
+
+    QWidget *bubbleCol = new QWidget;
+    bubbleCol->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    QVBoxLayout *colLayout = new QVBoxLayout(bubbleCol);
+    colLayout->setContentsMargins(0, 0, 0, 0);
+    colLayout->setSpacing(4);
+
+    m_streamingBrowser = new QTextBrowser;
+    m_streamingBrowser->setOpenExternalLinks(true);
+    m_streamingBrowser->setFrameShape(QFrame::NoFrame);
+    m_streamingBrowser->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_streamingBrowser->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_streamingBrowser->setStyleSheet(
+        "QTextBrowser { background: white; border: 1px solid #E5E7EB; border-radius: 10px 10px 10px 4px; "
+        "padding: 12px 16px; font-size: 14px; color: #1F2937; }");
+    m_streamingBrowser->document()->setDefaultStyleSheet(
+        "body { margin: 0; padding: 0; color: #1F2937; text-align: left; font-family: 'Microsoft YaHei', sans-serif; } "
+        "p { color: #1F2937; margin: 4px 0; text-align: left; } ");
+    m_streamingBrowser->setHtml("");
+    m_streamingBrowser->setMinimumHeight(48);
+    m_streamingBrowser->setFixedHeight(48);
+    m_streamingBrowser->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+
+    QTextOption textOpt;
+    textOpt.setAlignment(Qt::AlignLeft);
+    textOpt.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+    m_streamingBrowser->document()->setDefaultTextOption(textOpt);
+
+    colLayout->addWidget(m_streamingBrowser);
+
+    rowLayout->addWidget(avatar, 0, Qt::AlignTop);
+    rowLayout->addWidget(bubbleCol, 1);
+    rowLayout->addSpacing(60);
+
+    m_chatMsgLayout->addWidget(m_streamingRow);
+    m_chatMsgLayout->addStretch();
+    scrollToBottom();
+}
+
 void AIChatPage::sendMessage() {
     QString text = m_inputEdit->toPlainText().trimmed();
     if (text.isEmpty() || m_sse->isRunning()) return;
@@ -569,15 +730,31 @@ void AIChatPage::sendMessage() {
     m_welcomeWidget->setVisible(false);
 
     appendMessage("user", text);
-    saveMessageToConversation("user", text);
 
     m_sendBtn->setVisible(false);
     m_stopBtn->setVisible(true);
+    m_inputEdit->setEnabled(false);
     m_statusLabel->setText("AI \xe6\xad\xa3\xe5\x9c\xa8\xe6\x80\x9d\xe8\x80\x83...");
     m_statusLabel->setVisible(true);
     m_typingWidget->setVisible(true);
 
-    m_sse->start(text, m_linkedDocIds.isEmpty() ? 0 : m_linkedDocIds.first());
+    // Auto-create conversation if none active
+    if (m_activeConversationId <= 0) {
+        QJsonObject body;
+        body["title"] = text.left(20) + (text.length() > 20 ? "..." : "");
+        ApiClient::instance().createConversation(body, [this, text](bool ok, const QJsonObject &data, const QString &) {
+            if (ok) {
+                QJsonObject d = data["data"].toObject();
+                m_activeConversationId = d["id"].toInt();
+                loadConversationList();
+            }
+            saveMessageToConversation("user", text);
+            m_sse->start(text, m_linkedDocIds.isEmpty() ? 0 : m_linkedDocIds.first());
+        });
+    } else {
+        saveMessageToConversation("user", text);
+        m_sse->start(text, m_linkedDocIds.isEmpty() ? 0 : m_linkedDocIds.first());
+    }
 }
 
 void AIChatPage::sendCommand(const QString &cmd) {
@@ -587,31 +764,89 @@ void AIChatPage::sendCommand(const QString &cmd) {
 
 void AIChatPage::stopGeneration() {
     m_sse->abort();
-    m_sendBtn->setVisible(true);
-    m_stopBtn->setVisible(false);
-    m_statusLabel->setVisible(false);
-}
-
-void AIChatPage::onSseText(const QString &text) {
-    Q_UNUSED(text);
-    m_statusLabel->setText("AI \xe6\xad\xa3\xe5\x9c\xa8\xe5\x9b\x9e\xe5\xa4\x8d...");
-}
-
-void AIChatPage::onSseComplete(const QString &text, const QString &excelUrl) {
-    appendMessage("assistant", text, excelUrl);
-    saveMessageToConversation("assistant", text);
+    // Clean up streaming bubble
+    if (m_streamingRow) {
+        m_chatMsgLayout->removeWidget(m_streamingRow);
+        m_streamingRow->deleteLater();
+        m_streamingRow = nullptr;
+        m_streamingBrowser = nullptr;
+    }
+    // Append partial AI response if any
+    QString partial = m_sse->currentText().trimmed();
+    if (!partial.isEmpty()) {
+        appendMessage("assistant", partial);
+        saveMessageToConversation("ai", partial);
+    }
+    appendMessage("system", "\u5df2\u505c\u6b62\u751f\u6210");
     m_sendBtn->setVisible(true);
     m_stopBtn->setVisible(false);
     m_statusLabel->setVisible(false);
     m_typingWidget->setVisible(false);
+    m_inputEdit->setEnabled(true);
+}
+
+void AIChatPage::onSseText(const QString &text) {
+    m_statusLabel->setText("AI \xe6\xad\xa3\xe5\x9c\xa8\xe5\x9b\x9e\xe5\xa4\x8d...");
+    // Create streaming bubble on first text arrival
+    if (!m_streamingBrowser && !text.isEmpty()) {
+        createStreamingBubble();
+    }
+    // Update streaming bubble with accumulated text
+    if (m_streamingBrowser && !text.isEmpty()) {
+        m_streamingBrowser->document()->setDefaultStyleSheet(
+            "body { margin: 0; padding: 0; color: #1F2937; text-align: left; font-family: 'Microsoft YaHei', sans-serif; } "
+            "p { color: #1F2937; margin: 4px 0; text-align: left; } "
+            "pre { background-color: #F3F4F6; padding: 8px; white-space: pre-wrap; word-wrap: break-word; } "
+            "code { background-color: #F3F4F6; padding: 2px 4px; } "
+            "table { border-collapse: collapse; } "
+            "th, td { border: 1px solid #D1D5DB; padding: 4px 8px; }");
+        m_streamingBrowser->setHtml(MarkdownRenderer::toHtml(text));
+        // Recalculate height
+        int w = m_streamingBrowser->viewport()->width();
+        if (w > 0) m_streamingBrowser->document()->setTextWidth(w);
+        int h = static_cast<int>(m_streamingBrowser->document()->size().height()) + 32;
+        m_streamingBrowser->setFixedHeight(qMax(h, 48));
+        scrollToBottom();
+    }
+}
+
+void AIChatPage::onSseComplete(const QString &text, const QString &excelUrl) {
+    // Remove streaming bubble, replace with final message
+    if (m_streamingRow) {
+        m_chatMsgLayout->removeWidget(m_streamingRow);
+        m_streamingRow->deleteLater();
+        m_streamingRow = nullptr;
+        m_streamingBrowser = nullptr;
+        // Also remove the trailing stretch if any
+        QLayoutItem *lastItem = m_chatMsgLayout->itemAt(m_chatMsgLayout->count() - 1);
+        if (lastItem && lastItem->spacerItem()) {
+            m_chatMsgLayout->removeItem(lastItem);
+            delete lastItem;
+        }
+    }
+    appendMessage("assistant", text, excelUrl);
+    saveMessageToConversation("ai", text);
+    m_sendBtn->setVisible(true);
+    m_stopBtn->setVisible(false);
+    m_statusLabel->setVisible(false);
+    m_typingWidget->setVisible(false);
+    m_inputEdit->setEnabled(true);
 }
 
 void AIChatPage::onSseError(const QString &err) {
+    // Clean up streaming bubble
+    if (m_streamingRow) {
+        m_chatMsgLayout->removeWidget(m_streamingRow);
+        m_streamingRow->deleteLater();
+        m_streamingRow = nullptr;
+        m_streamingBrowser = nullptr;
+    }
     appendMessage("system", "\xe9\x94\x99\xe8\xaf\xaf: " + err);
     m_sendBtn->setVisible(true);
     m_stopBtn->setVisible(false);
     m_statusLabel->setVisible(false);
     m_typingWidget->setVisible(false);
+    m_inputEdit->setEnabled(true);
 }
 
 void AIChatPage::appendMessage(const QString &role, const QString &content, const QString &excelUrl) {
@@ -628,69 +863,116 @@ void AIChatPage::appendMessage(const QString &role, const QString &content, cons
     rowLayout->setSpacing(8);
 
     if (role == "user") {
-        // User message: bubble on right, avatar always visible
+        // User message: bubble on right
         rowLayout->addStretch(1);
 
         QWidget *bubble = new QWidget;
-        bubble->setMaximumWidth(500);
+        // Dynamic max width: 60% of chat area, min 340px (fits ~20 chars at 14px)
+        int chatWidth = m_chatScroll ? m_chatScroll->viewport()->width() : 600;
+        int maxBubbleW = qMax(340, static_cast<int>(chatWidth * 0.6));
+        bubble->setMaximumWidth(maxBubbleW);
         bubble->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
         bubble->setStyleSheet(
             "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #818CF8, stop:1 #4F46E5);"
-            "border-radius: 10px 10px 4px 10px; padding: 0;");
+            "border-radius: 12px 12px 4px 12px; padding: 0;");
         QVBoxLayout *bubbleLayout = new QVBoxLayout(bubble);
         bubbleLayout->setContentsMargins(16, 12, 16, 12);
         QLabel *textLabel = new QLabel(content.toHtmlEscaped().replace("\n", "<br>"));
         textLabel->setWordWrap(true);
         textLabel->setTextFormat(Qt::RichText);
         textLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        textLabel->setStyleSheet("font-size: 14px; color: white; background: transparent;");
+        textLabel->setStyleSheet("font-size: 14px; color: white; background: transparent; font-family: 'Microsoft YaHei', sans-serif; line-height: 1.6;");
         bubbleLayout->addWidget(textLabel);
 
         // User avatar
         QString uname = TokenManager::instance().username();
         QString avatarChar = uname.isEmpty() ? "U" : uname.left(1).toUpper();
         QLabel *avatar = new QLabel(avatarChar);
-        avatar->setFixedSize(32, 32);
+        avatar->setFixedSize(36, 36);
         avatar->setAlignment(Qt::AlignCenter);
         avatar->setStyleSheet(
             "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #818CF8, stop:1 #4F46E5);"
-            "border-radius: 16px; font-size: 13px; color: white; font-weight: bold;");
+            "border-radius: 18px; font-size: 14px; color: white; font-weight: bold;");
 
         rowLayout->addWidget(bubble);
         rowLayout->addWidget(avatar, 0, Qt::AlignTop);
 
     } else if (role == "assistant") {
         // AI avatar
-        QLabel *avatar = new QLabel("AI");
-        avatar->setFixedSize(32, 32);
+        QLabel *avatar = new QLabel("D");
+        avatar->setFixedSize(36, 36);
         avatar->setAlignment(Qt::AlignCenter);
-        avatar->setStyleSheet("background: #EEF2FF; border-radius: 16px; font-size: 11px; color: #4F46E5; font-weight: bold;");
+        avatar->setStyleSheet(
+            "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #818CF8, stop:1 #4F46E5);"
+            "border-radius: 18px; font-size: 14px; color: white; font-weight: bold;");
 
         // Bubble with markdown content + action buttons
         QWidget *bubbleCol = new QWidget;
+        bubbleCol->setMaximumWidth(700);
         bubbleCol->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         QVBoxLayout *colLayout = new QVBoxLayout(bubbleCol);
         colLayout->setContentsMargins(0, 0, 0, 0);
-        colLayout->setSpacing(4);
+        colLayout->setSpacing(6);
 
         QTextBrowser *textBrowser = new QTextBrowser;
         textBrowser->setOpenExternalLinks(true);
         textBrowser->setFrameShape(QFrame::NoFrame);
         textBrowser->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         textBrowser->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        textBrowser->document()->setMarkdown(content, QTextDocument::MarkdownDialectGitHub);
         textBrowser->setStyleSheet(
-            "QTextBrowser { background: #F3F4F6; border: none; border-radius: 10px 10px 10px 4px; padding: 12px 16px; font-size: 14px; color: #1F2937; }");
+            "QTextBrowser { background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 4px 12px 12px 12px; "
+            "padding: 16px 20px; font-size: 14px; color: #1F2937; }");
+        QTextOption textOpt;
+        textOpt.setAlignment(Qt::AlignLeft);
+        textOpt.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+        textBrowser->document()->setDefaultTextOption(textOpt);
+        textBrowser->document()->setDefaultStyleSheet(
+            "body { margin: 0; padding: 0; color: #1F2937; text-align: left; "
+            "font-family: 'Microsoft YaHei', sans-serif; line-height: 1.7; } "
+            "p { color: #1F2937; margin: 6px 0; text-align: left; font-size: 14px; } "
+            "pre { background-color: #F3F4F6; padding: 12px; border-radius: 6px; "
+            "white-space: pre-wrap; word-wrap: break-word; font-size: 13px; margin: 8px 0; } "
+            "code { background-color: #EEF2FF; padding: 2px 6px; border-radius: 4px; font-size: 13px; } "
+            "table { border-collapse: collapse; margin: 8px 0; } "
+            "th, td { border: 1px solid #D1D5DB; padding: 6px 10px; } "
+            "th { background-color: #F3F4F6; font-weight: 600; } "
+            "h1,h2,h3,h4,h5,h6 { color: #111827; }");
+        textBrowser->setHtml(MarkdownRenderer::toHtml(content));
+        // Force left alignment
+        {
+            QTextCursor cursor(textBrowser->document());
+            cursor.movePosition(QTextCursor::Start);
+            do {
+                QTextBlockFormat fmt = cursor.blockFormat();
+                fmt.setAlignment(Qt::AlignLeft);
+                cursor.setBlockFormat(fmt);
+            } while (cursor.movePosition(QTextCursor::NextBlock));
+        }
         textBrowser->setMinimumHeight(48);
         textBrowser->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
-        // Two-stage deferred height: first let layout run, then calc
-        QTimer::singleShot(50, [textBrowser]() {
+        // Deferred height calculation
+        QTimer::singleShot(100, [textBrowser]() {
             int w = textBrowser->viewport()->width();
-            if (w <= 0) w = textBrowser->width() - 32;
+            if (w <= 0) w = textBrowser->width() - 40;
             if (w > 0) textBrowser->document()->setTextWidth(w);
-            int h = static_cast<int>(textBrowser->document()->size().height()) + 32;
+            QTextCursor cursor(textBrowser->document());
+            cursor.movePosition(QTextCursor::Start);
+            do {
+                QTextBlockFormat fmt = cursor.blockFormat();
+                fmt.setAlignment(Qt::AlignLeft);
+                cursor.setBlockFormat(fmt);
+            } while (cursor.movePosition(QTextCursor::NextBlock));
+            int h = static_cast<int>(textBrowser->document()->size().height()) + 40;
             textBrowser->setFixedHeight(qMax(h, 48));
+
+            QTimer::singleShot(200, [textBrowser]() {
+                int w2 = textBrowser->viewport()->width();
+                if (w2 <= 0) w2 = textBrowser->width() - 40;
+                if (w2 > 0) textBrowser->document()->setTextWidth(w2);
+                int h2 = static_cast<int>(textBrowser->document()->size().height()) + 40;
+                textBrowser->setFixedHeight(qMax(h2, 48));
+            });
         });
 
         colLayout->addWidget(textBrowser);
@@ -701,7 +983,7 @@ void AIChatPage::appendMessage(const QString &role, const QString &content, cons
 
         rowLayout->addWidget(avatar, 0, Qt::AlignTop);
         rowLayout->addWidget(bubbleCol, 1);
-        rowLayout->addSpacing(60);
+        rowLayout->addStretch(1);
 
     } else {
         // System message
@@ -859,7 +1141,7 @@ void AIChatPage::previewContent(const QString &content) {
     QTextBrowser *browser = new QTextBrowser;
     browser->setOpenExternalLinks(true);
     browser->setStyleSheet("QTextBrowser { border: none; padding: 24px; font-size: 14px; }");
-    browser->document()->setMarkdown(content, QTextDocument::MarkdownDialectGitHub);
+    browser->setHtml(MarkdownRenderer::toHtml(content));
     lay->addWidget(browser);
     dlg.exec();
 }
@@ -966,7 +1248,8 @@ void AIChatPage::loadConversation(int convId) {
         m_welcomeWidget->setVisible(false);
         for (const auto &v : msgs) {
             ChatMessage msg = ChatMessage::fromJson(v.toObject());
-            appendMessage(msg.role, msg.content);
+            QString displayRole = (msg.role == "ai") ? "assistant" : msg.role;
+            appendMessage(displayRole, msg.content);
         }
     });
 }
@@ -991,12 +1274,18 @@ void AIChatPage::loadConversationList() {
     ApiClient::instance().listConversations([this](bool ok, const QJsonObject &data, const QString &) {
         if (!ok) return;
         m_conversations.clear();
-        m_convoList->clear();
         QJsonArray arr = data["data"].toArray();
         for (const auto &v : arr) {
             Conversation c = Conversation::fromJson(v.toObject());
             m_conversations.append(c);
+        }
+        rebuildConvoListUI();
+    });
+}
 
+void AIChatPage::rebuildConvoListUI() {
+    m_convoList->clear();
+    for (const Conversation &c : m_conversations) {
             // Create rich list item with title + time + hover buttons
             QWidget *itemWidget = new QWidget;
             itemWidget->setObjectName("convoItem");
@@ -1071,15 +1360,15 @@ void AIChatPage::loadConversationList() {
             itemWidget->setProperty("btnCol", QVariant::fromValue<QWidget*>(btnCol));
 
             connect(pinBtn, &QPushButton::clicked, [this, convoId]() {
-                // Move conversation to top of list
+                // Move conversation to top of list locally and rebuild UI
                 for (int j = 0; j < m_conversations.size(); j++) {
                     if (m_conversations[j].id == convoId) {
                         Conversation cv = m_conversations.takeAt(j);
                         m_conversations.prepend(cv);
-                        loadConversationList();
                         break;
                     }
                 }
+                rebuildConvoListUI();
             });
             connect(delBtn, &QPushButton::clicked, [this, convoId]() {
                 ApiClient::instance().deleteConversation(convoId, [this](bool ok, const QJsonObject &, const QString &) {
@@ -1099,7 +1388,6 @@ void AIChatPage::loadConversationList() {
                 break;
             }
         }
-    });
 }
 
 void AIChatPage::selectDocument() {
@@ -1220,7 +1508,12 @@ bool AIChatPage::eventFilter(QObject *obj, QEvent *event) {
     // Ctrl+Enter to send from input edit
     if (obj == m_inputEdit && event->type() == QEvent::KeyPress) {
         QKeyEvent *ke = static_cast<QKeyEvent*>(event);
-        if ((ke->key() == Qt::Key_Return || ke->key() == Qt::Key_Enter) && (ke->modifiers() & Qt::ControlModifier)) {
+        if (ke->key() == Qt::Key_Return || ke->key() == Qt::Key_Enter) {
+            if (ke->modifiers() & Qt::ShiftModifier) {
+                // Shift+Enter: insert newline (default behavior)
+                return false;
+            }
+            // Enter: send message
             sendMessage();
             return true;
         }

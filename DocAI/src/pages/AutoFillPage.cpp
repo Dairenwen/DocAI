@@ -26,6 +26,8 @@ AutoFillPage::AutoFillPage(QWidget *parent) : QWidget(parent) {
 }
 
 void AutoFillPage::setupUI() {
+    setObjectName("autoFillPage");
+    setStyleSheet("#autoFillPage { background: white; }");
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(32, 24, 32, 24);
     mainLayout->setSpacing(20);
@@ -285,6 +287,7 @@ QWidget* AutoFillPage::createStep1() {
 
 QWidget* AutoFillPage::createStep2() {
     QWidget *page = new QWidget;
+    page->setStyleSheet("background: white;");
     QVBoxLayout *layout = new QVBoxLayout(page);
     layout->setAlignment(Qt::AlignCenter);
 
@@ -355,6 +358,7 @@ QWidget* AutoFillPage::createStep2() {
 
 QWidget* AutoFillPage::createStep3() {
     QWidget *page = new QWidget;
+    page->setStyleSheet("background: white;");
     QVBoxLayout *layout = new QVBoxLayout(page);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(16);

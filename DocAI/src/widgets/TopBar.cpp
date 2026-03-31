@@ -68,8 +68,8 @@ void TopBar::setupUI() {
     m_statusDot->setStyleSheet("background: #059669; border-radius: 3px;");
     m_statusText = new QLabel("\xe6\x9c\x8d\xe5\x8a\xa1\xe5\x9c\xa8\xe7\xba\xbf");
     m_statusText->setStyleSheet(
-        "color: #059669; font-size: 12px; font-weight: 500;"
-        "background: #ECFDF5; padding: 2px 6px; border-radius: 10px; margin-right: 16px;"
+        "color: #059669; font-size: 11px; font-weight: 500;"
+        "background: #ECFDF5; padding: 2px 4px; border-radius: 8px; margin-right: 8px;"
     );
 
     // User

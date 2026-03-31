@@ -4,6 +4,8 @@
 #include <QFileInfo>
 #include <QMimeDatabase>
 #include <QUrlQuery>
+#include <QSslConfiguration>
+#include <QSslError>
 
 #include <QDebug>
 
@@ -15,7 +17,7 @@ ApiClient& ApiClient::instance() {
 ApiClient::ApiClient(QObject *parent)
     : QObject(parent)
     , m_nam(new QNetworkAccessManager(this))
-    , m_baseUrl("http://docai.sa1.tunnelfrp.com/api/v1")
+    , m_baseUrl("https://docai.sa1.tunnelfrp.com/api/v1")
 {
 }
 
@@ -25,6 +27,7 @@ QNetworkRequest ApiClient::makeRequest(const QString &path, bool isJson) {
     if (isJson) {
         req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     }
+    req.setSslConfiguration(QSslConfiguration::defaultConfiguration());
     QString token = TokenManager::instance().token();
     if (!token.isEmpty()) {
         req.setRawHeader("Authorization", ("Bearer " + token).toUtf8());
@@ -33,6 +36,9 @@ QNetworkRequest ApiClient::makeRequest(const QString &path, bool isJson) {
 }
 
 void ApiClient::handleReply(QNetworkReply *reply, Callback cb) {
+    connect(reply, QOverload<const QList<QSslError>&>::of(&QNetworkReply::sslErrors),
+            reply, [](const QList<QSslError>&) { /* ignored globally */ });
+    reply->ignoreSslErrors();
     connect(reply, &QNetworkReply::finished, this, [this, reply, cb]() {
         reply->deleteLater();
         qDebug() << "[API]" << reply->request().url().toString()
@@ -70,6 +76,9 @@ void ApiClient::handleReply(QNetworkReply *reply, Callback cb) {
 }
 
 void ApiClient::handleBlobReply(QNetworkReply *reply, BlobCallback cb) {
+    connect(reply, QOverload<const QList<QSslError>&>::of(&QNetworkReply::sslErrors),
+            reply, [](const QList<QSslError>&) { /* ignored globally */ });
+    reply->ignoreSslErrors();
     connect(reply, &QNetworkReply::finished, this, [this, reply, cb]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {

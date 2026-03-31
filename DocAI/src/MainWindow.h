@@ -5,6 +5,9 @@
 #include <QStackedWidget>
 #include <QSystemTrayIcon>
 #include <QCloseEvent>
+#include <QPropertyAnimation>
+#include <QGraphicsOpacityEffect>
+#include <QEasingCurve>
 #include "pages/LoginPage.h"
 #include "pages/DashboardPage.h"
 #include "pages/DocumentListPage.h"
@@ -23,10 +26,12 @@ public:
 protected:
     void closeEvent(QCloseEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     bool eventFilter(QObject *obj, QEvent *event) override;
+    bool nativeEvent(const QByteArray &eventType, void *message, long *result) override;
 
 private slots:
     void onLoginSuccess();

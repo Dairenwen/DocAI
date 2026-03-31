@@ -350,6 +350,9 @@ void DocumentListPage::renderPage() {
         QHBoxLayout *typeLayout = new QHBoxLayout(typeWidget);
         typeLayout->setContentsMargins(4, 0, 4, 0);
         QLabel *typeTag = new QLabel(doc.fileType.toUpper());
+        typeTag->setFixedWidth(50);
+        typeTag->setFixedHeight(22);
+        typeTag->setAlignment(Qt::AlignCenter);
         QString tagColor, tagBg;
         if (doc.fileType == "docx") { tagColor = "#3B82F6"; tagBg = "#DBEAFE"; }
         else if (doc.fileType == "xlsx") { tagColor = "#10B981"; tagBg = "#D1FAE5"; }
@@ -511,6 +514,7 @@ void DocumentListPage::uploadDocuments() {
                 if (*completed >= total) {
                     delete completed;
                     loadDocuments();
+                    emit documentsChanged();
                     QTimer::singleShot(1500, dlg, &QDialog::accept);
                 }
             });
@@ -529,6 +533,7 @@ void DocumentListPage::deleteSelected() {
         if (ok) {
             Toast::showMessage(this, QString::fromUtf8("\xe5\xb7\xb2\xe5\x88\xa0\xe9\x99\xa4 %1 \xe4\xb8\xaa\xe6\x96\x87\xe6\xa1\xa3").arg(ids.size()), Toast::Success);
             loadDocuments();
+            emit documentsChanged();
         } else {
             Toast::showMessage(this, QString::fromUtf8("\xe5\x88\xa0\xe9\x99\xa4\xe5\xa4\xb1\xe8\xb4\xa5"), Toast::Error);
         }

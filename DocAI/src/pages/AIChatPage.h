@@ -11,6 +11,7 @@
 #include <QComboBox>
 #include <QScrollArea>
 #include <QVBoxLayout>
+#include <QTextBrowser>
 #include "../network/SseClient.h"
 #include "../models/DataModels.h"
 
@@ -45,11 +46,13 @@ private slots:
 private:
     void setupUI();
     void appendMessage(const QString &role, const QString &content, const QString &excelUrl = QString());
+    void createStreamingBubble();
     void saveMessageToConversation(const QString &role, const QString &content);
     void scrollToBottom();
     void showWelcomeScreen();
     QWidget *createMessageActionBar(const QString &content, const QString &excelUrl);
     void rebuildLinkedDocList();
+    void rebuildConvoListUI();
     bool eventFilter(QObject *obj, QEvent *event) override;
 
     // Left sidebar
@@ -86,6 +89,10 @@ private:
     QList<Conversation> m_conversations;
     bool m_sidebarCollapsed = false;
     QString m_lastUserPrompt;
+
+    // Streaming AI response
+    QTextBrowser *m_streamingBrowser = nullptr;
+    QWidget *m_streamingRow = nullptr;
 };
 
 #endif // AICHATPAGE_H

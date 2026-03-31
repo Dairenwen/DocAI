@@ -12,6 +12,7 @@ public:
     void start(const QString &message, int documentId = 0);
     void abort();
     bool isRunning() const { return m_running; }
+    QString currentText() const { return m_finalText; }
 
 signals:
     void textReceived(const QString &fullText);

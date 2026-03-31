@@ -13,10 +13,22 @@
 #include <QAction>
 #include <QPainter>
 #include <QPainterPath>
+#include <QParallelAnimationGroup>
+#include <cstdlib>
+#include <ctime>
 #include <QMouseEvent>
+#include <QResizeEvent>
 #include <QEvent>
 #include <QKeyEvent>
 #include <QShortcut>
+#include <QPropertyAnimation>
+#include <QGraphicsOpacityEffect>
+#include <QEasingCurve>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <windowsx.h>
+#endif
 
 static const int SHADOW_WIDTH = 10;
 static const int CORNER_RADIUS = 10;
@@ -103,13 +115,29 @@ void MainWindow::setupUI() {
     connect(m_topBar, &TopBar::changePasswordClicked, this, &MainWindow::onChangePassword);
     connect(m_topBar, &TopBar::minimizeClicked, this, &QWidget::showMinimized);
     connect(m_topBar, &TopBar::maximizeClicked, [this]() {
-        if (isMaximized()) {
-            showNormal();
-            centralWidget()->layout()->setContentsMargins(SHADOW_WIDTH, SHADOW_WIDTH, SHADOW_WIDTH, SHADOW_WIDTH);
-        } else {
-            showMaximized();
-            centralWidget()->layout()->setContentsMargins(0, 0, 0, 0);
-        }
+        // Fade out slightly with easing curve
+        QPropertyAnimation *fadeOut = new QPropertyAnimation(this, "windowOpacity");
+        fadeOut->setDuration(150);
+        fadeOut->setStartValue(1.0);
+        fadeOut->setEndValue(0.92);
+        fadeOut->setEasingCurve(QEasingCurve::InCubic);
+        connect(fadeOut, &QPropertyAnimation::finished, [this]() {
+            if (isMaximized()) {
+                showNormal();
+                centralWidget()->layout()->setContentsMargins(SHADOW_WIDTH, SHADOW_WIDTH, SHADOW_WIDTH, SHADOW_WIDTH);
+            } else {
+                showMaximized();
+                centralWidget()->layout()->setContentsMargins(0, 0, 0, 0);
+            }
+            // Fade back in with easing curve
+            QPropertyAnimation *fadeIn = new QPropertyAnimation(this, "windowOpacity");
+            fadeIn->setDuration(250);
+            fadeIn->setStartValue(0.92);
+            fadeIn->setEndValue(1.0);
+            fadeIn->setEasingCurve(QEasingCurve::OutCubic);
+            fadeIn->start(QAbstractAnimation::DeleteWhenStopped);
+        });
+        fadeOut->start(QAbstractAnimation::DeleteWhenStopped);
     });
     connect(m_topBar, &TopBar::closeClicked, [this]() { hide(); });
 
@@ -128,6 +156,11 @@ void MainWindow::setupUI() {
         m_aiChatPage->linkDocumentAndOpenChat(docId, docName);
         m_sidebar->setCurrentIndex(3);
         onPageChanged(3);
+    });
+
+    connect(m_documentListPage, &DocumentListPage::documentsChanged, [this]() {
+        m_dashboardPage->refreshStats();
+        m_autoFillPage->loadDocStats();
     });
 
     m_pageStack->addWidget(m_dashboardPage);
@@ -157,6 +190,8 @@ void MainWindow::showMainApp() {
     m_rootStack->setCurrentWidget(m_mainApp);
     m_sidebar->setCurrentIndex(0);
     onPageChanged(0);
+    // Ensure dashboard stats are loaded with valid token
+    m_dashboardPage->refreshStats();
 }
 
 void MainWindow::onLogout() {
@@ -167,10 +202,76 @@ void MainWindow::onLogout() {
 }
 
 void MainWindow::onPageChanged(int index) {
-    m_pageStack->setCurrentIndex(index);
-    static const QStringList titles = {"工作台", "文档管理", "智能填表", "AI 对话", "AI 写作"};
+    int oldIndex = m_pageStack->currentIndex();
+
+    static const QStringList titles = {"\xe5\xb7\xa5\xe4\xbd\x9c\xe5\x8f\xb0", "\xe6\x96\x87\xe6\xa1\xa3\xe7\xae\xa1\xe7\x90\x86", "\xe6\x99\xba\xe8\x83\xbd\xe5\xa1\xab\xe8\xa1\xa8", "AI \xe5\xaf\xb9\xe8\xaf\x9d", "AI \xe5\x86\x99\xe4\xbd\x9c"};
     if (index >= 0 && index < titles.size())
         m_topBar->setTitle(titles[index]);
+
+    if (oldIndex == index) return;
+
+    QWidget *newPage = m_pageStack->widget(index);
+    newPage->resize(m_pageStack->size());
+    QPixmap newShot = newPage->grab();
+
+    // Random direction: 0=left, 1=right, 2=top, 3=bottom
+    static int lastDir = -1;
+    int dir;
+    do { dir = std::rand() % 4; } while (dir == lastDir);
+    lastDir = dir;
+
+    QPoint startPos;
+    int w = m_pageStack->width();
+    int h = m_pageStack->height();
+    switch (dir) {
+        case 0: startPos = QPoint(-w, 0); break; // from left
+        case 1: startPos = QPoint(w, 0); break;  // from right
+        case 2: startPos = QPoint(0, -h); break;  // from top
+        default: startPos = QPoint(0, h); break;  // from bottom
+    }
+
+    // Dark overlay on old page
+    QWidget *darkOverlay = new QWidget(m_pageStack);
+    darkOverlay->setFixedSize(m_pageStack->size());
+    darkOverlay->move(0, 0);
+    darkOverlay->setStyleSheet("background: rgba(0,0,0,38);");
+    darkOverlay->show();
+    darkOverlay->raise();
+    QGraphicsOpacityEffect *darkEffect = new QGraphicsOpacityEffect(darkOverlay);
+    darkOverlay->setGraphicsEffect(darkEffect);
+    darkEffect->setOpacity(0.0);
+
+    // Slide panel with new page snapshot
+    QLabel *slidePanel = new QLabel(m_pageStack);
+    slidePanel->setPixmap(newShot);
+    slidePanel->setFixedSize(m_pageStack->size());
+    slidePanel->move(startPos);
+    slidePanel->show();
+    slidePanel->raise();
+
+    QPropertyAnimation *slideAnim = new QPropertyAnimation(slidePanel, "pos");
+    slideAnim->setDuration(280);
+    slideAnim->setStartValue(startPos);
+    slideAnim->setEndValue(QPoint(0, 0));
+    slideAnim->setEasingCurve(QEasingCurve::OutCubic);
+
+    QPropertyAnimation *darkAnim = new QPropertyAnimation(darkEffect, "opacity");
+    darkAnim->setDuration(280);
+    darkAnim->setStartValue(0.0);
+    darkAnim->setEndValue(1.0);
+    darkAnim->setEasingCurve(QEasingCurve::OutCubic);
+
+    QParallelAnimationGroup *group = new QParallelAnimationGroup;
+    group->addAnimation(slideAnim);
+    group->addAnimation(darkAnim);
+
+    connect(group, &QParallelAnimationGroup::finished, [this, index, darkOverlay, slidePanel]() {
+        m_pageStack->setCurrentIndex(index);
+        darkOverlay->deleteLater();
+        slidePanel->deleteLater();
+    });
+
+    group->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 void MainWindow::onChangePassword() {
@@ -272,6 +373,10 @@ void MainWindow::onTrayActivated(QSystemTrayIcon::ActivationReason reason) {
             activateWindow();
         }
     }
+}
+
+void MainWindow::resizeEvent(QResizeEvent *event) {
+    QMainWindow::resizeEvent(event);
 }
 
 void MainWindow::paintEvent(QPaintEvent *) {
@@ -389,4 +494,39 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
         }
     }
     return QMainWindow::eventFilter(obj, event);
+}
+
+bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, long *result) {
+#ifdef Q_OS_WIN
+    MSG *msg = static_cast<MSG*>(message);
+    if (msg->message == WM_NCHITTEST && !isMaximized()) {
+        POINT pt = { GET_X_LPARAM(msg->lParam), GET_Y_LPARAM(msg->lParam) };
+        RECT winRect;
+        GetWindowRect(msg->hwnd, &winRect);
+        int x = pt.x - winRect.left;
+        int y = pt.y - winRect.top;
+        int w = winRect.right - winRect.left;
+        int h = winRect.bottom - winRect.top;
+        int border = SHADOW_WIDTH;
+
+        // Outside the content area (in the shadow region): transparent to system
+        bool inLeft   = x < border;
+        bool inRight  = x >= w - border;
+        bool inTop    = y < border;
+        bool inBottom = y >= h - border;
+
+        if ((inLeft || inRight) && (inTop || inBottom)) {
+            // Corner shadow area: allow resize
+            if (inLeft && inTop) { *result = HTTOPLEFT; return true; }
+            if (inRight && inTop) { *result = HTTOPRIGHT; return true; }
+            if (inLeft && inBottom) { *result = HTBOTTOMLEFT; return true; }
+            if (inRight && inBottom) { *result = HTBOTTOMRIGHT; return true; }
+        }
+        if (inLeft) { *result = HTLEFT; return true; }
+        if (inRight) { *result = HTRIGHT; return true; }
+        if (inTop) { *result = HTTOP; return true; }
+        if (inBottom) { *result = HTBOTTOM; return true; }
+    }
+#endif
+    return QMainWindow::nativeEvent(eventType, message, result);
 }
