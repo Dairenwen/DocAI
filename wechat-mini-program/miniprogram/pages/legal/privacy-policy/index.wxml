@@ -1,0 +1,43 @@
+<view class="doc-page legal-page">
+  <view class="page-shell">
+    <view class="panel rise-in legal-header">
+      <view class="section-title">DocAI 隐私政策</view>
+      <view class="section-subtitle">更新时间：{{updatedAt}}</view>
+      <view class="legal-note">
+        使用本小程序前，请完整阅读本政策；当你继续登录、上传文档、发起智能问答或智能填表时，表示你已知悉相关个人信息处理规则。
+      </view>
+    </view>
+
+    <view class="panel rise-in legal-section" wx:for="{{sections}}" wx:key="title">
+      <view class="legal-section-title">{{item.title}}</view>
+      <block wx:if="{{item.paragraphs}}">
+        <view
+          class="legal-paragraph"
+          wx:for="{{item.paragraphs}}"
+          wx:for-item="paragraph"
+          wx:key="*this"
+        >
+          {{paragraph}}
+        </view>
+      </block>
+      <block wx:if="{{item.bullets}}">
+        <view
+          class="legal-bullet"
+          wx:for="{{item.bullets}}"
+          wx:for-item="bullet"
+          wx:key="*this"
+        >
+          {{bullet}}
+        </view>
+      </block>
+    </view>
+
+    <view class="panel rise-in">
+      <view class="section-title">权利入口</view>
+      <view class="section-subtitle">如需注销账号、撤回同意或查看处理说明，可通过下方入口继续。</view>
+      <view class="legal-actions">
+        <button class="solid-btn inline-btn legal-action-btn" bindtap="openAccountSecurity">账号与安全</button>
+      </view>
+    </view>
+  </view>
+</view>

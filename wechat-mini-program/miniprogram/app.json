@@ -1,0 +1,72 @@
+{
+  "pages": [
+    "pages/docai/login/index",
+    "pages/docai/dashboard/index",
+    "pages/docai/documents/index",
+    "pages/docai/autofill/index",
+    "pages/docai/autofill-web/index",
+    "pages/docai/chat/index",
+    "pages/docai/profile/index",
+    "pages/legal/privacy-policy/index",
+    "pages/legal/user-agreement/index",
+    "pages/account-security/account-security/index",
+    "pages/about/about/index",
+    "pages/contact/contact/index"
+  ],
+  "window": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "DocAI",
+    "navigationBarBackgroundColor": "#ffffff",
+    "backgroundColor": "#ffffff",
+    "backgroundTextStyle": "light"
+  },
+  "tabBar": {
+    "color": "#6a7081",
+    "selectedColor": "#1d57f2",
+    "borderStyle": "black",
+    "backgroundColor": "#ffffff",
+    "list": [
+      {
+        "pagePath": "pages/docai/dashboard/index",
+        "iconPath": "image/icon_component.png",
+        "selectedIconPath": "image/icon_component_blue.png",
+        "text": "工作台"
+      },
+      {
+        "pagePath": "pages/docai/documents/index",
+        "iconPath": "image/icon_API.png",
+        "selectedIconPath": "image/icon_API_blue.png",
+        "text": "文档"
+      },
+      {
+        "pagePath": "pages/docai/chat/index",
+        "iconPath": "image/wechat.png",
+        "selectedIconPath": "image/wechat_blue.png",
+        "text": "对话"
+      },
+      {
+        "pagePath": "pages/docai/profile/index",
+        "iconPath": "image/icon_user.png",
+        "selectedIconPath": "image/icon_user_blue.png",
+        "text": "我的"
+      }
+    ]
+  },
+  "networkTimeout": {
+    "request": 120000,
+    "connectSocket": 10000,
+    "uploadFile": 120000,
+    "downloadFile": 120000
+  },
+  "debug": false,
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "themeLocation": "demo.theme.json",
+  "darkmode": true,
+  "resizable": true,
+  "__usePrivacyCheck__": true,
+  "useExtendedLib": {
+    "weui": true
+  },
+  "lazyCodeLoading": "requiredComponents"
+}

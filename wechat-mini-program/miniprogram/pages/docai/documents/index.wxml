@@ -1,0 +1,305 @@
+<view class="doc-page home-page">
+  <view class="sticky-search {{showFloatingSearch ? 'sticky-search--visible' : ''}}">
+    <view class="sticky-avatar">{{avatarText}}</view>
+    <view class="sticky-search-bar">
+      <view class="search-icon">
+        <view class="search-icon-circle"></view>
+        <view class="search-icon-line"></view>
+      </view>
+      <input
+        class="search-input search-input--compact"
+        placeholder="搜索文档名称、作者"
+        value="{{keyword}}"
+        confirm-type="search"
+        bindinput="onKeywordInput"
+        bindconfirm="applyFilters"
+      />
+      <button wx:if="{{keyword}}" class="search-clear" bindtap="clearKeyword">清空</button>
+    </view>
+  </view>
+
+  <view class="page-shell home-shell">
+    <view class="panel rise-in document-user-panel">
+      <view class="document-user-card">
+        <view class="document-user-avatar">{{avatarText}}</view>
+        <view class="document-user-copy">
+          <view class="document-user-label">当前账号</view>
+          <view class="document-user-name">{{userName}}</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="search-card rise-in">
+      <view class="search-icon">
+        <view class="search-icon-circle"></view>
+        <view class="search-icon-line"></view>
+      </view>
+      <input
+        class="search-input"
+        placeholder="搜索文档名称、作者"
+        value="{{keyword}}"
+        confirm-type="search"
+        bindinput="onKeywordInput"
+        bindconfirm="applyFilters"
+      />
+      <button wx:if="{{keyword}}" class="search-clear" bindtap="clearKeyword">清空</button>
+    </view>
+
+    <view class="quick-card rise-in">
+      <view class="quick-grid">
+        <button
+          class="quick-item"
+          hover-class="quick-item--hover"
+          data-key="upload"
+          bindtouchstart="handleToolTouchStart"
+          bindtouchend="handleToolTouchEnd"
+          bindtouchcancel="handleToolTouchCancel"
+          bindtap="chooseAndUpload"
+        >
+          <view class="quick-icon quick-icon--upload {{toolPressedKey === 'upload' ? 'quick-icon--pressed' : ''}}">
+            <view class="icon-upload-sheet"></view>
+            <view class="icon-upload-tray"></view>
+            <view class="icon-upload-arrow"></view>
+            <view class="icon-upload-arrow-head icon-upload-arrow-head--left"></view>
+            <view class="icon-upload-arrow-head icon-upload-arrow-head--right"></view>
+          </view>
+          <view class="quick-title">上传</view>
+        </button>
+
+        <button
+          class="quick-item"
+          hover-class="quick-item--hover"
+          data-key="chat"
+          bindtouchstart="handleToolTouchStart"
+          bindtouchend="handleToolTouchEnd"
+          bindtouchcancel="handleToolTouchCancel"
+          bindtap="goChat"
+        >
+          <view class="quick-icon quick-icon--chat {{toolPressedKey === 'chat' ? 'quick-icon--pressed' : ''}}">
+            <view class="icon-chat-bubble icon-chat-bubble--back"></view>
+            <view class="icon-chat-bubble icon-chat-bubble--front"></view>
+            <view class="icon-chat-tail"></view>
+            <view class="icon-chat-dot icon-chat-dot--first"></view>
+            <view class="icon-chat-dot icon-chat-dot--second"></view>
+            <view class="icon-chat-dot icon-chat-dot--third"></view>
+          </view>
+          <view class="quick-title">AI 对话</view>
+        </button>
+
+        <button
+          class="quick-item"
+          hover-class="quick-item--hover"
+          data-key="workspace"
+          bindtouchstart="handleToolTouchStart"
+          bindtouchend="handleToolTouchEnd"
+          bindtouchcancel="handleToolTouchCancel"
+          bindtap="goDashboard"
+        >
+          <view class="quick-icon quick-icon--workspace {{toolPressedKey === 'workspace' ? 'quick-icon--pressed' : ''}}">
+            <view class="icon-workspace-tile icon-workspace-tile--tl"></view>
+            <view class="icon-workspace-tile icon-workspace-tile--tr"></view>
+            <view class="icon-workspace-tile icon-workspace-tile--bl"></view>
+            <view class="icon-workspace-tile icon-workspace-tile--br"></view>
+          </view>
+          <view class="quick-title">工作台</view>
+        </button>
+      </view>
+      <view class="upload-picker-hint">{{uploadPickerHint}}</view>
+    </view>
+
+    <view class="panel rise-in upload-notice-card" wx:if="{{uploadNoticeItems.length}}">
+      <view class="section-head">
+        <view>
+          <view class="section-title">{{uploadNoticeTitle || '上传提醒'}}</view>
+          <view class="section-subtitle">以下项目未成功处理，可按提示调整后重试。</view>
+        </view>
+        <button
+          wx:if="{{canRetryUpload}}"
+          class="ghost-btn inline-btn upload-retry-btn"
+          loading="{{uploadingFiles}}"
+          bindtap="retryFailedUpload"
+        >
+          重试失败文件
+        </button>
+      </view>
+
+      <view class="upload-rule-list">
+        <view class="upload-rule-item upload-rule-item--warning" wx:for="{{uploadNoticeItems}}" wx:key="*this">
+          <view class="upload-rule-value">{{item}}</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="panel rise-in autofill-picker-panel" wx:if="{{autofillPickerMode}}">
+      <view class="autofill-picker-head">
+        <view class="autofill-picker-copy">
+          <view class="autofill-picker-title">选择智能填表数据源</view>
+          <view class="autofill-picker-desc">请在文档列表里自由勾选需要的文件，支持多选与取消。完成后会自动返回填表页面，并把这些文件显示为已选数据源。</view>
+        </view>
+        <view class="autofill-picker-count">{{autofillDraftDocIds.length}} 份</view>
+      </view>
+
+      <view class="autofill-picker-actions">
+        <button class="autofill-picker-btn autofill-picker-btn--primary" bindtap="finishAutofillPicker">完成并返回填表</button>
+        <button class="autofill-picker-btn autofill-picker-btn--ghost" bindtap="cancelAutofillPicker">取消选择模式</button>
+      </view>
+    </view>
+
+    <view class="upload-picked-card rise-in" wx:if="{{lastPickedFiles.length}}">
+      <view class="upload-picked-head">
+        <view class="upload-picked-title">已选择文件</view>
+        <view class="upload-picked-count">{{lastPickedCount}} 份</view>
+      </view>
+
+      <view class="upload-picked-list">
+        <view class="upload-picked-item" wx:for="{{lastPickedFiles}}" wx:key="key">
+          <view class="upload-picked-name">{{item.name}}</view>
+          <view class="upload-picked-size">{{item.sizeText}}</view>
+        </view>
+      </view>
+
+      <view class="upload-picked-more" wx:if="{{lastPickedMoreCount}}">
+        另有 {{lastPickedMoreCount}} 份文件已选择
+      </view>
+    </view>
+
+    <view class="category-card rise-in">
+      <scroll-view class="category-scroll" scroll-x="true" show-scrollbar="false">
+        <view class="category-list">
+          <view
+            wx:for="{{categories}}"
+            wx:key="key"
+            class="category-chip {{activeCategory === item.key ? 'category-chip--active' : ''}}"
+            data-key="{{item.key}}"
+            bindtap="switchCategory"
+          >
+            {{item.label}}
+          </view>
+        </view>
+      </scroll-view>
+    </view>
+
+    <view class="document-card rise-in">
+      <view class="document-card-head">
+        <view class="document-card-title">文档列表</view>
+        <view class="document-card-count">{{documents.length}} 份</view>
+      </view>
+
+      <view wx:if="{{loading}}" class="empty-state">
+        <view class="empty-title">正在同步文档</view>
+        <view class="empty-desc">稍等一下，系统正在刷新列表。</view>
+      </view>
+
+      <view wx:elif="{{isEmpty}}" class="empty-state">
+        <view class="empty-title">{{emptyTitle}}</view>
+        <view class="empty-desc">{{emptyDesc}}</view>
+      </view>
+
+      <view wx:else class="document-list">
+        <view wx:for="{{documents}}" wx:key="idText" class="document-slide-wrap">
+          <mp-slideview
+            class="document-slide-item"
+            data-id="{{item.idText}}"
+            buttons="{{item.slideButtons}}"
+            show="{{openSwipeId === item.idText}}"
+            bindshow="handleSwipeShow"
+            bindhide="handleSwipeHide"
+            bindbuttontap="handleSwipeButtonTap"
+          >
+            <view
+              class="document-row"
+              bindtap="previewDoc"
+              data-index="{{index}}"
+              data-id="{{item.idText}}"
+            >
+              <view class="document-file-icon document-file-icon--{{item.fileTheme}}">
+                <view class="document-file-sheet">
+                  <view class="document-file-corner"></view>
+                  <view wx:if="{{item.fileTheme === 'excel'}}" class="document-file-grid">
+                    <view class="document-file-grid-cell"></view>
+                    <view class="document-file-grid-cell"></view>
+                    <view class="document-file-grid-cell"></view>
+                    <view class="document-file-grid-cell"></view>
+                  </view>
+                  <view wx:elif="{{item.fileTheme === 'pdf'}}" class="document-file-pdf-mark">PDF</view>
+                  <view wx:else class="document-file-lines">
+                    <view class="document-file-line document-file-line--wide"></view>
+                    <view class="document-file-line"></view>
+                    <view class="document-file-line document-file-line--short"></view>
+                  </view>
+                </view>
+              </view>
+
+              <view class="document-info">
+                <view class="document-copy">
+                  <view class="document-title">{{item.title}}</view>
+
+                  <view class="document-meta-line">
+                    <view class="document-meta-item document-meta-item--author">{{item.authorText}}</view>
+                    <view class="document-meta-item">{{item.fileSizeText}}</view>
+                    <view class="document-meta-item">{{item.uploadedAtText}}</view>
+                  </view>
+
+                  <view class="document-extra-row" wx:if="{{item.statusText || item.isFavorite || item.resultTagText || (autofillPickerMode && item.selectedForAutofill)}}">
+                    <view wx:if="{{item.statusText}}" class="document-status document-status--{{item.statusTone}}">
+                      {{item.statusText}}
+                    </view>
+                    <view wx:if="{{item.resultTagText}}" class="document-result-flag">{{item.resultTagText}}</view>
+                    <view wx:if="{{autofillPickerMode && item.selectedForAutofill}}" class="document-autofill-flag">填表数据源</view>
+                    <view wx:if="{{item.isFavorite}}" class="document-favorite-flag">已收藏</view>
+                  </view>
+
+                  <view wx:if="{{autofillPickerMode && item.kind === 'source'}}" class="document-action-row">
+                    <button
+                      class="document-inline-btn {{item.selectedForAutofill ? 'document-inline-btn--warn' : ''}}"
+                      disabled="{{!item.autofillSelectable && !item.selectedForAutofill}}"
+                      catchtap="toggleAutofillSource"
+                      data-index="{{index}}"
+                      data-id="{{item.idText}}"
+                    >
+                      {{item.selectedForAutofill ? '取消选择' : '选择为数据源'}}
+                    </button>
+                  </view>
+                </view>
+
+                <view class="document-more-slot">
+                  <button class="document-more" catchtap="openMoreActions" data-index="{{index}}" data-id="{{item.idText}}">
+                    <view class="document-more-dots">
+                      <view class="document-more-dot"></view>
+                      <view class="document-more-dot"></view>
+                      <view class="document-more-dot"></view>
+                    </view>
+                  </button>
+                </view>
+              </view>
+            </view>
+          </mp-slideview>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{privacyDialog.visible}}" class="privacy-mask">
+    <view class="privacy-dialog">
+      <view class="privacy-dialog-title">隐私授权提示</view>
+      <view class="privacy-dialog-desc">
+        为了{{privacyDialog.sceneText}}，请先阅读并同意《用户协议》《隐私政策》。
+      </view>
+      <view class="privacy-dialog-links">
+        <button class="privacy-dialog-link" bindtap="openUserAgreement">查看用户协议</button>
+        <button class="privacy-dialog-link" bindtap="openPrivacyPolicy">查看隐私政策</button>
+      </view>
+      <view class="privacy-dialog-actions">
+        <button class="ghost-btn inline-btn" bindtap="handlePrivacyDisagree">暂不同意</button>
+        <button
+          id="{{privacyDialog.agreeButtonId}}"
+          class="solid-btn inline-btn"
+          open-type="agreePrivacyAuthorization"
+          bindagreeprivacyauthorization="handlePrivacyAgree"
+        >
+          同意并继续
+        </button>
+      </view>
+    </view>
+  </view>
+</view>

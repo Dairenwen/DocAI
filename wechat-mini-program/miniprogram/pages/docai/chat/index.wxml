@@ -1,0 +1,285 @@
+<view class="chat-page">
+  <view class="chat-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="chat-top__bar">
+      <view class="chat-top__identity">
+        <view class="chat-top__avatar">
+          <view class="chat-top__avatar-core">AI</view>
+          <view class="chat-top__avatar-dot"></view>
+        </view>
+        <view class="chat-top__text">
+          <view class="chat-top__title">{{ui.navTitle}}</view>
+          <view class="chat-top__subtitle">{{topSubtitle}}</view>
+        </view>
+      </view>
+
+      <view class="chat-top__actions">
+        <view class="top-action" bindtap="openHistory">
+          <view class="top-action__clock">
+            <view class="top-action__clock-short"></view>
+            <view class="top-action__clock-long"></view>
+          </view>
+        </view>
+        <view class="top-action" bindtap="openMore">
+          <view class="top-action__dots">
+            <view class="top-action__dot"></view>
+            <view class="top-action__dot"></view>
+            <view class="top-action__dot"></view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view class="context-dock">
+      <view class="context-dock__badge">{{contextBadge}}</view>
+      <view class="context-dock__body">
+        <view class="context-dock__title">{{contextTitle}}</view>
+        <view class="context-dock__desc">{{contextDesc}}</view>
+      </view>
+      <view class="context-dock__actions">
+        <view class="context-dock__action" bindtap="openDocumentPicker">{{primaryActionText}}</view>
+        <view wx:if="{{currentDoc.id}}" class="context-dock__separator"></view>
+        <view
+          wx:if="{{currentDoc.id}}"
+          class="context-dock__action context-dock__action--muted"
+          bindtap="handleClearDocument"
+        >
+          {{ui.cancelAction}}
+        </view>
+      </view>
+    </view>
+
+    <view wx:if="{{stateNotice}}" class="state-chip state-chip--{{stateNotice.type}}">
+      <view class="state-chip__text">
+        <view class="state-chip__title">{{stateNotice.title}}</view>
+        <view class="state-chip__desc">{{stateNotice.desc}}</view>
+      </view>
+      <view wx:if="{{stateNotice.actionText}}" class="state-chip__action" bindtap="retryLastRequest">
+        {{stateNotice.actionText}}
+      </view>
+    </view>
+  </view>
+
+  <view class="chat-body">
+    <scroll-view
+      class="chat-scroll"
+      scroll-y="true"
+      enable-flex="true"
+      scroll-with-animation="true"
+      scroll-into-view="{{scrollIntoView}}"
+    >
+      <view id="chat-anchor-top"></view>
+
+      <view wx:if="{{!messages.length}}" class="welcome-stage">
+        <view class="message message--ai">
+          <view class="message__avatar">AI</view>
+          <view class="message__content">
+            <view class="welcome-card">
+              <view class="welcome-card__title">{{emptyTitle}}</view>
+              <view class="welcome-card__desc">{{emptyDesc}}</view>
+            </view>
+          </view>
+        </view>
+
+        <view class="prompt-grid">
+          <view
+            wx:for="{{quickPrompts}}"
+            wx:key="key"
+            class="prompt-card"
+            data-prompt="{{item.prompt}}"
+            bindtap="handleQuickPrompt"
+          >
+            <view class="prompt-card__title">{{item.label}}</view>
+            <view class="prompt-card__desc">{{item.desc}}</view>
+          </view>
+        </view>
+      </view>
+
+      <view wx:else class="message-list">
+        <block wx:for="{{messages}}" wx:key="id">
+          <view wx:if="{{item.role === 'ai'}}" id="msg-{{item.id}}" class="message message--ai">
+            <view class="message__avatar">AI</view>
+            <view class="message__content">
+              <view wx:if="{{item.viewType === 'card'}}" class="ai-card">
+                <view class="ai-card__title">{{item.cardTitle}}</view>
+                <view
+                  wx:for="{{item.rows}}"
+                  wx:key="index"
+                  wx:for-item="row"
+                  class="ai-card__row"
+                >
+                  <view class="ai-card__label">{{row.label}}</view>
+                  <view class="ai-card__value">{{row.value}}</view>
+                </view>
+                <view wx:if="{{item.cardTip}}" class="ai-card__tip">{{item.cardTip}}</view>
+              </view>
+
+              <view wx:else class="ai-text">
+                <view
+                  wx:for="{{item.paragraphs}}"
+                  wx:key="index"
+                  wx:for-item="paragraph"
+                  class="ai-text__paragraph"
+                >
+                  {{paragraph}}
+                </view>
+              </view>
+
+              <view class="message__time">{{item.timeLabel}}</view>
+            </view>
+          </view>
+
+          <view wx:else id="msg-{{item.id}}" class="message message--user">
+            <view class="message__content message__content--user">
+              <view class="user-bubble">{{item.content}}</view>
+              <view class="message__time message__time--user">{{item.timeLabel}}</view>
+            </view>
+          </view>
+        </block>
+
+        <view wx:if="{{pendingReply}}" id="msg-loading" class="message message--ai">
+          <view class="message__avatar">AI</view>
+          <view class="message__content">
+            <view class="thinking-bubble">
+              <view class="thinking-bubble__dot"></view>
+              <view class="thinking-bubble__dot"></view>
+              <view class="thinking-bubble__dot"></view>
+            </view>
+            <view class="message__time">{{ui.pendingText}}</view>
+          </view>
+        </view>
+      </view>
+
+      <view id="chat-anchor-bottom"></view>
+    </scroll-view>
+  </view>
+
+  <view class="composer-shell">
+    <view class="composer-bar">
+      <view class="composer-bar__plus" bindtap="openDocumentPicker">
+        <view class="composer-bar__plus-line composer-bar__plus-line--vertical"></view>
+        <view class="composer-bar__plus-line composer-bar__plus-line--horizontal"></view>
+      </view>
+
+      <textarea
+        class="composer-bar__input"
+        value="{{inputText}}"
+        maxlength="2000"
+        auto-height="false"
+        disabled="{{currentDoc.id && !canAskCurrentDoc}}"
+        show-confirm-bar="false"
+        adjust-position="false"
+        confirm-type="send"
+        cursor-spacing="24"
+        style="height: {{inputHeight}}px;"
+        placeholder="{{inputPlaceholder}}"
+        placeholder-class="composer-bar__placeholder"
+        bindinput="onInput"
+        bindlinechange="onInputLineChange"
+        bindconfirm="sendMessage"
+      />
+
+      <view
+        class="composer-bar__send {{canSend && canAskCurrentDoc ? 'composer-bar__send--active' : ''}}"
+        bindtap="sendMessage"
+      >
+        <view class="composer-bar__send-icon">
+          <view class="composer-bar__send-wing"></view>
+          <view class="composer-bar__send-tail"></view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{showHistoryPopup}}" class="overlay" bindtap="closeMask">
+    <view class="history-drawer" catchtap="noop">
+      <view class="drawer-head">
+        <view class="drawer-title">{{ui.historyTitle}}</view>
+        <view class="drawer-primary" bindtap="createNewConversation">{{ui.newConversation}}</view>
+      </view>
+
+      <scroll-view class="drawer-scroll" scroll-y="true" enable-flex="true">
+        <view
+          wx:if="{{!historySections[0].items.length && !historySections[1].items.length && !historySections[2].items.length}}"
+          class="drawer-empty"
+        >
+          {{ui.noHistory}}
+        </view>
+
+        <block wx:for="{{historySections}}" wx:key="key" wx:for-item="section">
+          <view wx:if="{{section.items.length}}" class="history-section">
+            <view class="history-section__title">{{section.label}}</view>
+            <view
+              wx:for="{{section.items}}"
+              wx:key="id"
+              wx:for-item="historyItem"
+              class="history-item {{currentSessionId === historyItem.id ? 'history-item--active' : ''}}"
+              data-id="{{historyItem.id}}"
+              bindtap="selectHistorySession"
+            >
+              <view class="history-item__title">{{historyItem.title}}</view>
+              <view class="history-item__time">{{historyItem.updatedLabel}}</view>
+            </view>
+          </view>
+        </block>
+      </scroll-view>
+    </view>
+  </view>
+
+  <view wx:if="{{showMorePopup}}" class="overlay" bindtap="closeMask">
+    <view class="sheet" catchtap="noop">
+      <view class="sheet__title">{{ui.moreTitle}}</view>
+      <view class="sheet__list">
+        <view
+          wx:for="{{moreActions}}"
+          wx:key="key"
+          class="sheet-item {{item.disabled ? 'sheet-item--disabled' : ''}} {{item.danger ? 'sheet-item--danger' : ''}}"
+          data-key="{{item.key}}"
+          data-disabled="{{item.disabled ? 'true' : 'false'}}"
+          bindtap="handleMoreAction"
+        >
+          <view class="sheet-item__title">{{item.label}}</view>
+          <view class="sheet-item__desc">{{item.desc}}</view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{showDocumentPopup}}" class="overlay" bindtap="closeMask">
+    <view class="sheet sheet--document" catchtap="noop">
+      <view class="sheet__title">{{ui.documentPickerTitle}}</view>
+
+      <block wx:if="{{documentLoading}}">
+        <view class="sheet__empty">{{ui.loadingDocuments}}</view>
+      </block>
+
+      <block wx:elif="{{documentError}}">
+        <view class="sheet__empty">
+          <view class="sheet__empty-text">{{documentError}}</view>
+          <view class="sheet__retry" bindtap="retryLoadDocuments">{{ui.reload}}</view>
+        </view>
+      </block>
+
+      <scroll-view wx:else class="document-scroll" scroll-y="true" enable-flex="true">
+        <view wx:if="{{!documentOptions.length}}" class="sheet__empty">{{ui.noDocuments}}</view>
+
+        <view
+          wx:for="{{documentOptions}}"
+          wx:key="id"
+          class="document-item {{currentDoc.id === item.id ? 'document-item--active' : ''}} {{item.canChat === false ? 'document-item--disabled' : ''}}"
+          data-id="{{item.id}}"
+          bindtap="chooseDocument"
+        >
+          <view class="document-item__main">
+            <view class="document-item__title">{{item.title}}</view>
+            <view class="document-item__meta">{{item.meta}}</view>
+            <view wx:if="{{item.questionStageText}}" class="document-item__stage document-item__stage--{{item.questionStageTone || 'plain'}}">
+              {{item.questionStageText}}
+            </view>
+            <view wx:if="{{item.questionStageDesc}}" class="document-item__desc">{{item.questionStageDesc}}</view>
+          </view>
+          <view wx:if="{{currentDoc.id === item.id}}" class="document-item__tag">{{ui.currentLinked}}</view>
+        </view>
+      </scroll-view>
+    </view>
+  </view>
+</view>

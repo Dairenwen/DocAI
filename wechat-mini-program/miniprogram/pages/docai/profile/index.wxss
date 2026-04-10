@@ -1,0 +1,116 @@
+page {
+  background: #f3f5f7;
+}
+
+.profile-page {
+  min-height: 100vh;
+  padding-left: 0;
+  padding-right: 0;
+  background: #f3f5f7;
+}
+
+.profile-page .panel {
+  border-radius: 28rpx;
+  border: none;
+  box-shadow: none;
+}
+
+.profile-user-card {
+  margin-top: 14rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 22rpx;
+  background: linear-gradient(180deg, #ffffff 0%, #f6f9ff 100%);
+  border: 1rpx solid #e3eaf8;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.profile-user-avatar {
+  width: 76rpx;
+  height: 76rpx;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #2563eb 0%, #60a5fa 100%);
+  color: #ffffff;
+  font-size: 30rpx;
+  font-weight: 700;
+}
+
+.profile-user-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-user-label {
+  font-size: 22rpx;
+  color: #7b879c;
+}
+
+.profile-user-name {
+  margin-top: 6rpx;
+  font-size: 30rpx;
+  line-height: 1.35;
+  font-weight: 700;
+  color: #1b2a44;
+  word-break: break-all;
+}
+
+.profile-user-meta {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: #74829b;
+  word-break: break-all;
+}
+
+.profile-actions {
+  margin-top: 14rpx;
+}
+
+.profile-logout-btn {
+  width: 100%;
+}
+
+.profile-menu {
+  margin-top: 16rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.profile-menu-item {
+  padding: 22rpx 20rpx;
+  border-radius: 22rpx;
+  background: linear-gradient(180deg, #ffffff 0%, #f7f9fd 100%);
+  border: 1rpx solid #e5ebf5;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.profile-menu-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-menu-title {
+  font-size: 28rpx;
+  line-height: 1.4;
+  font-weight: 700;
+  color: #1b2a44;
+}
+
+.profile-menu-desc {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  line-height: 1.6;
+  color: #73809a;
+}
+
+.profile-menu-arrow {
+  font-size: 28rpx;
+  color: #9aa6ba;
+}

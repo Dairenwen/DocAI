@@ -1,0 +1,36 @@
+.account-security-page {
+  padding-top: 20rpx;
+}
+
+.account-security-note {
+  margin-top: 16rpx;
+  font-size: 24rpx;
+  line-height: 1.7;
+  color: #61708a;
+}
+
+.account-security-list {
+  margin-top: 16rpx;
+}
+
+.account-security-item {
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  line-height: 1.8;
+  color: #53617b;
+}
+
+.account-security-item::before {
+  content: '• ';
+}
+
+.account-security-actions {
+  margin-top: 18rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
+}
+
+.account-security-btn {
+  width: 100%;
+}

@@ -1,0 +1,45 @@
+.legal-page {
+  padding-top: 20rpx;
+}
+
+.legal-header,
+.legal-section {
+  gap: 0;
+}
+
+.legal-note {
+  margin-top: 16rpx;
+  font-size: 24rpx;
+  line-height: 1.7;
+  color: #657086;
+}
+
+.legal-section-title {
+  font-size: 30rpx;
+  line-height: 1.4;
+  font-weight: 700;
+  color: #1d2940;
+}
+
+.legal-paragraph,
+.legal-bullet {
+  margin-top: 14rpx;
+  font-size: 24rpx;
+  line-height: 1.8;
+  color: #53617b;
+}
+
+.legal-bullet::before {
+  content: '• ';
+}
+
+.legal-actions {
+  margin-top: 18rpx;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+
+.legal-action-btn {
+  width: 100%;
+}

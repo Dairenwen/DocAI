@@ -1,0 +1,220 @@
+<view class="autofill-page">
+  <view class="autofill-shell">
+    <block wx:if="{{mode === 'source'}}">
+      <view class="source-header">
+        <view class="source-header__title">智能填表</view>
+        <view class="source-header__desc">选择本次填表要使用的数据源</view>
+        <view class="source-header__tag">支持批量选择</view>
+      </view>
+
+      <view class="source-actions">
+        <button class="action-btn action-btn--primary" loading="{{uploading}}" bindtap="uploadSourceFiles">
+          从微信会话选择
+        </button>
+        <button class="action-btn action-btn--secondary" loading="{{loading}}" bindtap="handleOpenSourceDocPicker">
+          从文档库选择
+        </button>
+      </view>
+
+      <view class="source-summary">
+        <view class="source-summary__text">已选 {{selectionSummary.total}} 份数据源 · {{selectionSummary.ready}} 份已就绪</view>
+        <view class="source-summary__pill">已选 {{selectionSummary.total}}</view>
+      </view>
+
+      <view class="source-section">
+        <view class="section-head">
+          <view class="section-title">本次使用的数据源</view>
+          <view class="section-subtitle">仅展示当前已加入本次填表的文档</view>
+        </view>
+
+        <block wx:if="{{selectedSourceDocs.length > 0}}">
+          <view class="source-doc-list">
+            <view class="source-doc-item" wx:for="{{selectedSourceDocs}}" wx:key="id">
+              <view class="source-doc-item__main">
+                <view class="source-doc-item__title">{{item.fileName}}</view>
+                <view class="source-doc-item__meta">{{item.typeText}} · {{item.stageDisplayText}} · {{item.fileSizeText}}</view>
+              </view>
+              <view class="source-doc-item__delete" data-id="{{item.id}}" bindtap="removeSelectedSourceDoc">删除</view>
+            </view>
+          </view>
+        </block>
+        <block wx:else>
+          <view class="empty-block">
+            <view class="empty-block__title">{{loading ? '正在加载文档库…' : '还没有添加数据源'}}</view>
+            <view class="empty-block__desc">可先上传资料，或从文档库中批量选择要参与本次填表的原始文档。</view>
+          </view>
+        </block>
+      </view>
+
+      <view class="source-rules">
+        <view class="source-rules__toggle" bindtap="toggleSourceRules">
+          <view class="source-rules__toggle-text">{{showSourceRules ? '收起上传规则' : '上传规则 >'}}</view>
+        </view>
+        <view class="source-rules__content" wx:if="{{showSourceRules}}">
+          <view class="source-rules__item" wx:for="{{sourceUploadRules}}" wx:key="label">
+            <view class="source-rules__label">{{item.label}}</view>
+            <view class="source-rules__value">{{item.value}}</view>
+          </view>
+        </view>
+      </view>
+
+      <view class="source-hint">{{uploadPickerHint}}</view>
+
+      <view class="page-footer">
+        <button class="footer-btn" bindtap="continueToTemplate">下一步，选择模板</button>
+      </view>
+
+      <view wx:if="{{showSourceDocPicker}}" class="source-picker">
+        <view
+          class="source-picker__mask {{pickerMaskVisible ? 'source-picker__mask--visible' : ''}}"
+          bindtap="handleCloseSourceDocPicker"
+          catchtouchmove="noop"
+        ></view>
+        <view
+          class="source-picker__panel {{pickerPanelVisible ? 'source-picker__panel--visible' : ''}}"
+          catchtap="noop"
+          catchtouchmove="noop"
+        >
+          <view class="source-picker__header">
+            <view class="source-picker__header-main">
+              <view class="source-picker__title">从文档库选择数据源</view>
+              <view class="source-picker__subtitle">仅展示可作为数据源的原始文档</view>
+            </view>
+            <view class="source-picker__count">已选 {{pickerSelectedDocIds.length}}</view>
+          </view>
+
+          <scroll-view class="source-picker__list" scroll-y="true">
+            <block wx:if="{{pickerLoading}}">
+              <view class="picker-empty">
+                <view class="picker-empty__title">正在加载文档库…</view>
+              </view>
+            </block>
+            <block wx:elif="{{availableSourceDocs.length > 0}}">
+              <view class="source-picker__items">
+                <view
+                  class="source-picker__item"
+                  wx:for="{{availableSourceDocs}}"
+                  wx:key="id"
+                  data-id="{{item.id}}"
+                  bindtap="handleToggleSourceDoc"
+                >
+                  <view class="source-picker__icon source-picker__icon--{{item.fileTheme}}">{{item.fileBadge}}</view>
+                  <view class="source-picker__body">
+                    <view class="source-picker__name">{{item.fileName}}</view>
+                    <view class="source-picker__meta">
+                      {{item.authorText}} · {{item.fileSizeText}} · {{item.timeText}} · {{item.stageDisplayText}}
+                    </view>
+                  </view>
+                  <view class="source-picker__check {{item.selected ? 'source-picker__check--selected' : ''}}">
+                    <text wx:if="{{item.selected}}">✓</text>
+                  </view>
+                </view>
+              </view>
+            </block>
+            <block wx:else>
+              <view class="picker-empty">
+                <view class="picker-empty__title">暂无可选文档</view>
+                <view class="picker-empty__desc">可先上传资料，或在文档库中准备原始文档后再选择。</view>
+              </view>
+            </block>
+          </scroll-view>
+
+          <view class="source-picker__footer">
+            <button class="source-picker__btn source-picker__btn--ghost" bindtap="handleCloseSourceDocPicker">
+              取消
+            </button>
+            <button class="source-picker__btn source-picker__btn--primary" bindtap="handleConfirmSourceDocSelection">
+              完成
+            </button>
+          </view>
+        </view>
+      </view>
+    </block>
+
+    <block wx:else>
+      <view class="template-shell">
+        <view class="template-card">
+          <view class="section-head">
+            <view class="section-title">已选数据源</view>
+            <view class="section-subtitle">模板页不再重新选择资料，直接承接上一步确认的数据源。</view>
+          </view>
+
+          <block wx:if="{{sourceCount > 0}}">
+            <view class="template-source-preview">
+              <view class="template-source-chip" wx:for="{{sourcePreview}}" wx:key="id">
+                {{item.fileName}}
+              </view>
+              <view class="template-source-more" wx:if="{{sourceCount > 3}}">
+                另有 {{sourceCount - 3}} 份资料未展开
+              </view>
+            </view>
+          </block>
+          <block wx:else>
+            <view class="empty-block">
+              <view class="empty-block__title">还没有可用的数据源</view>
+              <view class="empty-block__desc">请先返回上一步，至少选择 1 份数据源文档。</view>
+            </view>
+          </block>
+        </view>
+
+        <view class="template-card">
+          <view class="section-head">
+            <view class="section-title">模板文件</view>
+            <view class="section-subtitle">模板可以来自微信会话，也可以直接复用模板库中的已上传模板。</view>
+          </view>
+
+          <view class="template-file">
+            <view class="template-file__label">当前模板</view>
+            <view class="template-file__value">{{currentTemplate ? currentTemplate.fileName : '暂未选择模板文件'}}</view>
+            <view wx:if="{{currentTemplate}}" class="source-doc-item__meta">{{templateSourceText}}</view>
+          </view>
+
+          <view class="template-actions">
+            <button class="action-btn action-btn--primary" bindtap="chooseTemplateFile">从微信会话选择</button>
+            <button class="action-btn action-btn--secondary" bindtap="refreshTemplateLibrary" loading="{{templateLibraryLoading}}">
+              刷新模板库
+            </button>
+          </view>
+
+          <view class="source-hint">{{templatePickerHint}}</view>
+
+          <view class="source-section">
+            <view class="section-head">
+              <view class="section-title">模板库</view>
+              <view class="section-subtitle">选择后会直接复用模板，不再重复上传。</view>
+            </view>
+
+            <block wx:if="{{templateLibraryDocs.length > 0}}">
+              <view class="source-doc-list">
+                <view class="source-doc-item" wx:for="{{templateLibraryDocs}}" wx:key="id" data-id="{{item.id}}" bindtap="selectTemplateFromLibrary">
+                  <view class="source-doc-item__main">
+                    <view class="source-doc-item__title">{{item.fileName}}</view>
+                    <view class="source-doc-item__meta">{{item.typeText}} · {{item.stageText}} · {{item.sourceText}}</view>
+                  </view>
+                  <view class="source-summary__pill">{{item.selected ? '已选' : '选择'}}</view>
+                </view>
+              </view>
+            </block>
+            <block wx:else>
+              <view class="empty-block">
+                <view class="empty-block__title">{{templateLibraryLoading ? '正在加载模板库…' : '模板库暂无可用模板'}}</view>
+                <view class="empty-block__desc">可以先把模板发到微信会话或文件传输助手，再回到这里选择。</view>
+              </view>
+            </block>
+          </view>
+
+          <view class="template-actions">
+            <button class="action-btn action-btn--secondary" wx:if="{{currentTemplate}}" bindtap="clearTemplateFile">
+              清空模板
+            </button>
+          </view>
+        </view>
+
+        <view class="page-footer page-footer--spread">
+          <button class="footer-btn footer-btn--ghost" bindtap="goBackToSource">返回上一步</button>
+          <button class="footer-btn" bindtap="continueToRun">进入执行页</button>
+        </view>
+      </view>
+    </block>
+  </view>
+</view>

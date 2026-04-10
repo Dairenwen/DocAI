@@ -1,0 +1,64 @@
+<view class="doc-page">
+  <view class="page-shell">
+    <view class="panel rise-in" wx:if="{{missingResult}}">
+      <view class="empty-state">
+        <view class="empty-title">暂时没有可展示的结果</view>
+        <view class="empty-desc">请先完成一次原生智能填表，或者返回文档页查看已经沉淀的“成表”记录。</view>
+      </view>
+      <view class="result-actions result-actions--stack">
+        <button class="solid-btn inline-btn" bindtap="restartAutofill">返回智能填表入口</button>
+        <button class="ghost-btn inline-btn" bindtap="goDocuments">去文档页查看成表</button>
+      </view>
+    </view>
+
+    <view wx:elif="{{resultSummary}}">
+      <view class="panel rise-in result-complete-panel">
+        <view class="result-complete-head">
+          <view class="result-complete-copy">
+            <view class="result-complete-title">填表完成</view>
+            <view class="result-complete-subtitle">结果已生成，可直接下载或转发</view>
+          </view>
+          <view class="result-complete-duration">{{resultSummary.durationText}}</view>
+        </view>
+
+        <view class="result-file-card">
+          <view class="result-file-icon result-file-icon--{{result.fileTheme}}">
+            <view class="result-file-icon-ext">{{result.typeText}}</view>
+          </view>
+
+          <view class="result-file-body">
+            <view class="result-file-label">结果文件</view>
+            <view class="result-file-name">{{resultSummary.fileName}}</view>
+            <view class="result-file-meta">
+              <text>大小 {{resultSummary.fileSizeText}}</text>
+              <text>数据源 {{resultSummary.sourceCountText}}</text>
+              <text>耗时 {{resultSummary.durationText}}</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="result-action-block">
+          <view class="result-action-row">
+            <button class="solid-btn inline-btn result-action-btn" loading="{{downloading}}" bindtap="handleDownloadOpen">下载并打开</button>
+            <button class="ghost-btn inline-btn result-action-btn" loading="{{downloading}}" bindtap="handleDownloadSave">下载到本地</button>
+          </view>
+          <button class="outline-btn result-action-wide" loading="{{sharing}}" bindtap="handleShare">转发结果</button>
+        </view>
+
+        <view wx:if="{{resultDetailItems.length > 0}}" class="result-detail-section">
+          <view class="result-detail-toggle" bindtap="toggleResultDetail">
+            <text>查看详细信息</text>
+            <text>{{resultDetailExpanded ? '收起' : '展开'}}</text>
+          </view>
+
+          <view wx:if="{{resultDetailExpanded}}" class="result-detail-list">
+            <view class="result-detail-item" wx:for="{{resultDetailItems}}" wx:key="label">
+              <view class="result-detail-label">{{item.label}}</view>
+              <view class="result-detail-value">{{item.value}}</view>
+            </view>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+</view>

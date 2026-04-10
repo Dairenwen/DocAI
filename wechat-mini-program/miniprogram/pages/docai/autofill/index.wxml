@@ -1,0 +1,302 @@
+﻿<view class="doc-page">
+  <view class="page-shell">
+    <view class="rise-in autofill-page-header">
+      <view class="autofill-page-title">智能填表</view>
+      <view class="autofill-page-subtitle">选择本次填表要使用的数据源</view>
+      <view class="autofill-page-tag">支持批量选择</view>
+    </view>
+
+    <view class="panel rise-in">
+      <view class="section-head">
+        <view>
+          <view class="section-title">数据源选择</view>
+          <view class="section-subtitle">先选资料，再继续模板与填表操作。</view>
+        </view>
+        <view class="pill">已选 {{selectionSummary.total}}</view>
+      </view>
+
+      <view class="source-toolbar">
+        <view class="source-toolbar-actions">
+          <button class="solid-btn inline-btn source-upload-btn" loading="{{uploadingSources}}" bindtap="uploadSourceFiles">上传资料</button>
+          <button class="ghost-btn inline-btn source-picker-btn" bindtap="handleOpenSourceDocPicker">从文档库选择</button>
+        </view>
+        <view class="source-summary-row">
+          <view class="source-summary-text">已选 {{selectionSummary.total}} 份数据源 · {{selectionSummary.ready}} 份已就绪</view>
+          <view class="source-summary-pill">已选 {{selectionSummary.total}}</view>
+        </view>
+      </view>
+
+      <view class="selected-list">
+        <view class="selected-title">本次使用的数据源</view>
+
+        <view wx:if="{{selectedSourceDocs.length > 0}}" class="selected-source-list">
+          <view class="selected-source-card selected-source-card--lite" wx:for="{{selectedSourceDocs}}" wx:key="id">
+            <view class="selected-source-main">
+              <view class="selected-source-name">{{item.fileName}}</view>
+              <view class="selected-source-meta">{{item.typeText}} · {{item.stageDisplayText || item.stageText}} · {{item.fileSizeText || '--'}}</view>
+            </view>
+            <view class="selected-source-side selected-source-side--lite">
+              <text class="selected-source-remove" data-id="{{item.id}}" bindtap="removeSelectedSource">移除</text>
+            </view>
+          </view>
+        </view>
+
+        <view wx:else class="empty-state source-empty-state">
+          <view class="empty-title">还没有加入本次填表的数据源</view>
+          <view class="empty-desc">可以先上传资料，也可以从当前页底部抽屉里批量加入文档库资料。</view>
+        </view>
+      </view>
+
+      <view class="source-rule-toggle" bindtap="toggleSourceRules">
+        <text>上传规则</text>
+        <text class="source-rule-toggle-arrow">{{showSourceRules ? '收起' : '>'}}</text>
+      </view>
+
+      <view wx:if="{{showSourceRules}}" class="source-rule-panel">
+        <view class="source-rule-row">
+          <text class="source-rule-label">支持格式</text>
+          <text class="source-rule-value">{{sourceRuleDetails.extensions}}</text>
+        </view>
+        <view class="source-rule-row">
+          <text class="source-rule-label">单文件大小限制</text>
+          <text class="source-rule-value">{{sourceRuleDetails.maxFileSize}}</text>
+        </view>
+        <view class="source-rule-row">
+          <text class="source-rule-label">单次上传数量限制</text>
+          <text class="source-rule-value">{{sourceRuleDetails.maxCount}}</text>
+        </view>
+        <view class="source-rule-row">
+          <text class="source-rule-label">失败处理说明</text>
+          <text class="source-rule-value">{{sourceRuleDetails.retryText}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="panel rise-in">
+      <view class="section-head">
+        <view>
+          <view class="section-title">模板与填表需求</view>
+          <view class="section-subtitle">模板选择和执行也都收在同一页，结果会直接回到当前页面。</view>
+        </view>
+        <view class="pill">DOCX / XLSX</view>
+      </view>
+
+      <view class="template-card">
+        <view class="template-card-label">当前模板</view>
+        <view class="template-card-value">{{currentTemplate ? currentTemplate.fileName : '暂未选择模板文件'}}</view>
+        <view wx:if="{{currentTemplate}}" class="template-selected-row">
+          <view class="template-selected-chip">{{currentTemplate.typeText}}</view>
+          <view class="template-selected-chip template-selected-chip--{{currentTemplate.stageTone}}">{{currentTemplate.stageText}}</view>
+        </view>
+        <view wx:if="{{currentTemplate}}" class="template-selected-desc">{{currentTemplate.sourceText}}</view>
+        <view class="template-card-note">模板可以来自微信会话，也可以直接复用模板库里已上传的模板。</view>
+        <view class="template-actions">
+          <button class="solid-btn inline-btn" bindtap="handleTapChooseTemplate">选择模板</button>
+          <button class="ghost-btn inline-btn" wx:if="{{currentTemplate}}" bindtap="clearTemplateFile">清空模板</button>
+        </view>
+        <view class="upload-picker-hint">{{templatePickerHint}}</view>
+      </view>
+
+      <view class="run-textarea-card">
+        <view class="template-card-label">我的需求</view>
+        <textarea
+          class="run-textarea"
+          maxlength="500"
+          placeholder="可选：补充你的填表要求，例如“保留原始日期格式”“没有命中的字段留空”。"
+          value="{{userRequirement}}"
+          bindinput="handleRequirementInput"
+        />
+        <view class="run-textarea-count">{{userRequirement.length}} / 500</view>
+      </view>
+    </view>
+
+    <view class="panel rise-in">
+      <view class="section-head">
+        <view>
+          <view class="section-title">执行状态</view>
+          <view class="section-subtitle">{{executionBlockedText}}</view>
+        </view>
+      </view>
+
+      <view class="run-progress-list">
+        <view class="run-progress-item {{index < currentProgressStep ? 'run-progress-item--done' : ''}} {{index === currentProgressStep ? 'run-progress-item--active' : ''}}" wx:for="{{progressSteps}}" wx:key="*this">
+          <view class="run-progress-dot"></view>
+          <view class="run-progress-text">{{item}}</view>
+        </view>
+      </view>
+
+      <view class="run-progress-note" wx:if="{{progressText}}">{{progressText}}</view>
+      <view class="run-error-note" wx:if="{{errorText}}">{{errorText}}</view>
+
+      <button
+        class="solid-btn run-submit-btn"
+        loading="{{submitting}}"
+        disabled="{{selectionSummary.total === 0 || selectionSummary.pending > 0 || selectionSummary.failed > 0 || !currentTemplate}}"
+        bindtap="startAutofill"
+      >
+        开始智能填表
+      </button>
+    </view>
+
+    <view class="panel rise-in" wx:if="{{resultReady && result}}">
+      <view class="section-head">
+        <view>
+          <view class="section-title">填表结果</view>
+          <view class="section-subtitle">结果已同步写入文档页“成表”，你也可以直接在当前页下载或转发。</view>
+        </view>
+        <view class="pill">{{result.createdAtText}}</view>
+      </view>
+
+      <view class="metric-grid autofill-metrics">
+        <view class="metric-card">
+          <view class="metric-value">{{result.filledCount}}</view>
+          <view class="metric-label">已填字段</view>
+          <view class="metric-note">本次成功自动完成的字段数量</view>
+        </view>
+        <view class="metric-card">
+          <view class="metric-value">{{result.blankCount}}</view>
+          <view class="metric-label">待补字段</view>
+          <view class="metric-note">仍需人工确认或补充的字段数量</view>
+        </view>
+        <view class="metric-card">
+          <view class="metric-value">{{result.totalSlots}}</view>
+          <view class="metric-label">模板字段总数</view>
+          <view class="metric-note">当前模板解析出的总字段数</view>
+        </view>
+        <view class="metric-card">
+          <view class="metric-value">{{result.fillTimeMs}}ms</view>
+          <view class="metric-label">处理耗时</view>
+          <view class="metric-note">上传模板后到生成结果的总耗时</view>
+        </view>
+      </view>
+
+      <view class="result-meta-card">
+        <view class="result-meta-item">模板名称：{{result.templateName}}</view>
+        <view class="result-meta-item">结果文件：{{result.outputName}}</view>
+        <view class="result-meta-item" wx:if="{{result.auditId}}">审计编号：{{result.auditId}}</view>
+        <view class="result-meta-item" wx:if="{{result.fileSizeText}}">模板大小：{{result.fileSizeText}}</view>
+        <view class="result-meta-item">数据源数量：{{result.sourceCount}}</view>
+      </view>
+
+      <view class="result-actions">
+        <button class="solid-btn inline-btn result-action-btn" loading="{{downloadingResult}}" bindtap="handleDownloadOpen">下载并打开</button>
+        <button class="ghost-btn inline-btn result-action-btn" loading="{{downloadingResult}}" bindtap="handleDownloadSave">仅下载到本地</button>
+        <button class="outline-btn inline-btn result-action-btn" loading="{{sharingResult}}" bindtap="handleShareResult">转发结果</button>
+      </view>
+
+      <text class="autofill-result-text">{{result.summaryText}}</text>
+
+      <view class="result-source-list" wx:if="{{result.sourceDocs.length > 0}}">
+        <view class="result-source-chip" wx:for="{{result.sourceDocs}}" wx:key="id">{{item.fileName}}</view>
+      </view>
+    </view>
+
+    <view class="panel rise-in" wx:if="{{decisionPreview.length > 0}}">
+      <view class="section-head">
+        <view>
+          <view class="section-title">决策记录预览</view>
+          <view class="section-subtitle">这里展示前几条决策记录，帮助你快速确认填表结果。</view>
+        </view>
+      </view>
+
+      <view class="decision-list">
+        <view class="decision-card" wx:for="{{decisionPreview}}" wx:key="fieldName">
+          <view class="decision-head">
+            <view class="decision-title">{{item.fieldName}}</view>
+            <view class="decision-confidence">{{item.confidenceText}}</view>
+          </view>
+          <view class="decision-value">{{item.finalValue || '无匹配结果'}}</view>
+          <view class="decision-reason" wx:if="{{item.reason}}">{{item.reason}}</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="panel rise-in">
+      <view class="section-head">
+        <view>
+          <view class="section-title">四段状态说明</view>
+          <view class="section-subtitle">前端仍保持“上传成功 / 解析中 / 建索引中 / 可填表”的状态提示，便于在单页内判断资料是否可用。</view>
+        </view>
+      </view>
+
+      <view class="stage-list">
+        <view class="stage-card stage-card--{{item.tone}}" wx:for="{{stageItems}}" wx:key="key">
+          <view class="stage-card-head">
+            <view class="stage-dot"></view>
+            <view class="stage-title">{{item.title}}</view>
+          </view>
+          <view class="stage-desc">{{item.desc}}</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="page-footnote rise-in">开发者工具通常无法模拟该能力，请用真机或 PC 版微信测试。</view>
+
+  </view>
+
+  <view
+    wx:if="{{showSourceDocPicker}}"
+    class="source-picker-mask {{pickerMaskVisible ? 'source-picker-mask--visible' : ''}}"
+    catchtap="handleCloseSourceDocPicker"
+    catchtouchmove="noop"
+  ></view>
+
+  <view
+    wx:if="{{showSourceDocPicker}}"
+    class="source-picker-panel {{pickerPanelVisible ? 'source-picker-panel--visible' : ''}}"
+    catchtap="noop"
+  >
+    <view class="source-picker-handle"></view>
+    <view class="source-picker-header">
+      <view class="source-picker-header-copy">
+        <view class="source-picker-title">从文档库选择数据源</view>
+        <view class="source-picker-subtitle">仅显示可作为数据源的原始文档，已生成的成表和输出文件不会出现在这里。</view>
+      </view>
+      <view class="source-picker-count">已选 {{selectedSourceDocIds.length}} 份</view>
+    </view>
+
+    <scroll-view class="source-picker-scroll" scroll-y="true" enable-flex="true">
+      <view wx:if="{{pickerLoading}}" class="source-picker-empty">
+        <view class="source-picker-empty-title">正在加载文档库…</view>
+      </view>
+
+      <view wx:elif="{{availableSourceDocs.length > 0}}" class="source-picker-list">
+        <view
+          class="source-picker-item"
+          wx:for="{{availableSourceDocs}}"
+          wx:key="id"
+          data-id="{{item.id}}"
+          bindtap="handleToggleSourceDoc"
+        >
+          <view class="source-picker-file source-picker-file--{{item.fileTheme}}">
+            <view class="source-picker-file-ext">{{item.typeText}}</view>
+          </view>
+
+          <view class="source-picker-body">
+            <view class="source-picker-name">{{item.fileName}}</view>
+            <view class="source-picker-meta source-picker-meta--stacked">
+              <text>{{item.authorText || '系统用户'}}</text>
+              <text>{{item.fileSizeText || '--'}}</text>
+              <text wx:if="{{item.updatedAtText && item.updatedAtText !== '--'}}">{{item.updatedAtText}}</text>
+              <text>{{item.stageDisplayText || item.stageText}}</text>
+            </view>
+          </view>
+
+          <view class="source-picker-check {{item.selected ? 'source-picker-check--selected' : ''}} {{item.selectDisabled ? 'source-picker-check--disabled' : ''}}">
+            <text wx:if="{{item.selected}}" class="source-picker-check-mark">✓</text>
+          </view>
+        </view>
+      </view>
+
+      <view wx:else class="source-picker-empty">
+        <view class="source-picker-empty-title">当前没有可选数据源</view>
+        <view class="source-picker-empty-desc">先上传原始文档，再从这里批量加入本次填表。</view>
+      </view>
+    </scroll-view>
+
+    <view class="source-picker-footer">
+      <button class="ghost-btn inline-btn source-picker-footer-btn" bindtap="handleCloseSourceDocPicker">取消</button>
+      <button class="solid-btn inline-btn source-picker-footer-btn" bindtap="handleConfirmSourceDocSelection">完成</button>
+    </view>
+  </view>
+</view>

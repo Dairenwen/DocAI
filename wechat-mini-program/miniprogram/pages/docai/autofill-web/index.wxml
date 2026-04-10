@@ -1,0 +1,12 @@
+<view wx:if="{{errorText}}" class="webview-page">
+  <view class="webview-card">
+    <view class="webview-title">网页入口暂不可用</view>
+    <text class="webview-desc">{{errorText}}</text>
+    <view class="webview-note">
+      请优先使用小程序内的原生文档处理与智能填表流程。
+    </view>
+    <button class="webview-btn" bindtap="handleRetry">重新加载</button>
+  </view>
+</view>
+
+<web-view wx:else src="{{webviewUrl}}" binderror="handleWebError"></web-view>

@@ -1,0 +1,30 @@
+<view class="doc-page account-security-page">
+  <view class="page-shell">
+    <view class="panel rise-in">
+      <view class="section-title">账号与安全</view>
+      <view class="section-subtitle">更新时间：{{updatedAt}}</view>
+      <view class="account-security-note">
+        这里提供当前账号的注销入口和协议查看入口。账号注销成功后会自动退出登录，并清除当前账号关联数据。
+      </view>
+    </view>
+
+    <view class="panel rise-in">
+      <view class="section-title">处理说明</view>
+      <view class="account-security-list">
+        <view class="account-security-item" wx:for="{{responseItems}}" wx:key="*this">
+          {{item}}
+        </view>
+      </view>
+    </view>
+
+    <view class="panel rise-in">
+      <view class="section-title">账号操作</view>
+      <view class="section-subtitle">确认后会直接提交注销请求，处理成功即退出登录。</view>
+      <view class="account-security-actions">
+        <button class="warn-btn inline-btn account-security-btn" loading="{{submitting}}" disabled="{{submitting}}" bindtap="confirmCancelAccount">立即注销账号</button>
+        <button class="outline-btn inline-btn account-security-btn" bindtap="openUserAgreement">查看用户协议</button>
+        <button class="outline-btn inline-btn account-security-btn" bindtap="openPrivacyPolicy">查看隐私政策</button>
+      </view>
+    </view>
+  </view>
+</view>

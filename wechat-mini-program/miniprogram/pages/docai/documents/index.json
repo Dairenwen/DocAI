@@ -1,0 +1,11 @@
+{
+  "navigationBarTitleText": "文档",
+  "navigationBarBackgroundColor": "#ffffff",
+  "navigationBarTextStyle": "black",
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "dark",
+  "enableShareAppMessage": true,
+  "usingComponents": {
+    "mp-slideview": "/packageExtend/components/slideview/slideview"
+  }
+}

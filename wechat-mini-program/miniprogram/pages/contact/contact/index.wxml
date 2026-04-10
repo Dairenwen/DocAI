@@ -1,0 +1,59 @@
+<view class="doc-page contact-page">
+  <view class="page-shell">
+    <view class="hero-card rise-in">
+      <view class="hero-kicker">Support</view>
+      <view class="hero-title">{{focusTitle}}</view>
+      <view class="hero-desc">{{focusDesc}}</view>
+      <view class="hero-actions">
+        <view class="chip">更新于 {{updatedAt}}</view>
+        <view class="chip">{{subjectName}}</view>
+      </view>
+    </view>
+
+    <view class="panel rise-in">
+      <view class="section-title">联系渠道</view>
+      <view class="contact-card-list">
+        <view class="contact-card" wx:for="{{contactChannels}}" wx:key="label">
+          <view class="contact-card-label">{{item.label}}</view>
+          <view class="contact-card-value">{{item.value}}</view>
+          <view class="contact-card-desc">{{item.desc}}</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="panel rise-in">
+      <view class="section-title">提审协助信息</view>
+      <view class="contact-card-list">
+        <view class="contact-card" wx:for="{{reviewSupportItems}}" wx:key="label">
+          <view class="contact-card-label">{{item.label}}</view>
+          <view class="contact-card-value">{{item.value}}</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="panel rise-in">
+      <view class="section-title">客服反馈建议</view>
+      <view class="contact-list">
+        <view class="contact-item" wx:for="{{feedbackItems}}" wx:key="*this">{{item}}</view>
+      </view>
+    </view>
+
+    <view class="panel rise-in">
+      <view class="section-title">处理时效</view>
+      <view class="contact-list">
+        <view class="contact-item" wx:for="{{serviceItems}}" wx:key="*this">{{item}}</view>
+      </view>
+    </view>
+
+    <view class="panel rise-in">
+      <view class="section-title">快捷入口</view>
+      <view class="section-subtitle">可继续前往账号安全、关于产品或协议页面查看更多说明。</view>
+      <view class="contact-actions">
+        <button class="solid-btn inline-btn contact-btn" bindtap="openAccountSecurity">账号与安全</button>
+        <button class="ghost-btn inline-btn contact-btn" bindtap="openAbout">关于产品</button>
+        <button class="outline-btn inline-btn contact-btn" bindtap="openUserAgreement">用户协议</button>
+        <button class="outline-btn inline-btn contact-btn" bindtap="openPrivacyPolicy">隐私政策</button>
+      </view>
+    </view>
+  </view>
+</view>

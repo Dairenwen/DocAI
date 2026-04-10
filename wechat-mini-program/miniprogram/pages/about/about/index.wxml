@@ -1,0 +1,68 @@
+<view class="doc-page about-page">
+  <view class="page-shell">
+    <view class="hero-card rise-in">
+      <view class="hero-kicker">About</view>
+      <view class="hero-title">{{productName}}</view>
+      <view class="hero-desc">{{summary}}</view>
+      <view class="hero-actions">
+        <view class="chip">版本 {{version}}</view>
+        <view class="chip">更新于 {{updatedAt}}</view>
+      </view>
+    </view>
+
+    <view class="panel rise-in">
+      <view class="section-title">基础信息</view>
+      <view class="about-info-list">
+        <view class="about-info-item" wx:for="{{baseInfo}}" wx:key="label">
+          <view class="about-info-label">{{item.label}}</view>
+          <view class="about-info-value">{{item.value}}</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="panel rise-in">
+      <view class="section-title">核心能力</view>
+      <view class="about-feature-list">
+        <view class="about-feature-item" wx:for="{{featureItems}}" wx:key="title">
+          <view class="about-feature-title">{{item.title}}</view>
+          <view class="about-feature-desc">{{item.desc}}</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="panel rise-in">
+      <view class="section-title">提审关键信息</view>
+      <view class="about-info-list">
+        <view class="about-info-item" wx:for="{{reviewInfo}}" wx:key="label">
+          <view class="about-info-label">{{item.label}}</view>
+          <view class="about-info-value">{{item.value}}</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="panel rise-in">
+      <view class="section-title">隐私说明</view>
+      <view class="about-bullet-list">
+        <view class="about-bullet-item" wx:for="{{privacyItems}}" wx:key="*this">{{item}}</view>
+      </view>
+    </view>
+
+    <view class="panel rise-in">
+      <view class="section-title">上线前文档</view>
+      <view class="section-subtitle">以下资料已补充到工程仓库，可用于提审准备和联调验收。</view>
+      <view class="about-bullet-list">
+        <view class="about-bullet-item" wx:for="{{readinessDocs}}" wx:key="*this">{{item}}</view>
+      </view>
+    </view>
+
+    <view class="panel rise-in">
+      <view class="section-title">快捷入口</view>
+      <view class="section-subtitle">如需客服反馈或查看协议，可从这里继续进入。</view>
+      <view class="about-actions">
+        <button class="solid-btn inline-btn about-action-btn" bindtap="openContact">联系我们 / 客服反馈</button>
+        <button class="ghost-btn inline-btn about-action-btn" bindtap="openUserAgreement">用户协议</button>
+        <button class="outline-btn inline-btn about-action-btn" bindtap="openPrivacyPolicy">隐私政策</button>
+      </view>
+    </view>
+  </view>
+</view>

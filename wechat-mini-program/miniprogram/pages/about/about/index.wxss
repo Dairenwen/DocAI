@@ -1,0 +1,72 @@
+.about-page {
+  padding-top: 20rpx;
+}
+
+.about-info-list,
+.about-feature-list {
+  margin-top: 16rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.about-info-item,
+.about-feature-item {
+  padding: 18rpx 20rpx;
+  border-radius: 22rpx;
+  background: linear-gradient(180deg, #ffffff 0%, #f6f9ff 100%);
+  border: 1rpx solid #e3eaf8;
+}
+
+.about-info-label {
+  font-size: 22rpx;
+  color: #72809a;
+}
+
+.about-info-value,
+.about-feature-title {
+  margin-top: 8rpx;
+  font-size: 28rpx;
+  line-height: 1.45;
+  font-weight: 700;
+  color: #1b2a44;
+  word-break: break-word;
+}
+
+.about-feature-desc {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  line-height: 1.7;
+  color: #61708a;
+}
+
+.about-actions {
+  margin-top: 18rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
+}
+
+.about-bullet-list {
+  margin-top: 16rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.about-bullet-item {
+  padding: 16rpx 18rpx;
+  border-radius: 20rpx;
+  background: #f7f9fd;
+  font-size: 24rpx;
+  line-height: 1.7;
+  color: #61708a;
+}
+
+.about-bullet-item::before {
+  content: '• ';
+}
+
+.about-action-btn {
+  width: 100%;
+}

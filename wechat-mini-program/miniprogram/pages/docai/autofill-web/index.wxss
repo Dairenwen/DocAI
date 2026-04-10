@@ -1,0 +1,47 @@
+.webview-page {
+  min-height: 100vh;
+  padding: 36rpx;
+  background: linear-gradient(180deg, #f7faff 0%, #eef5ff 100%);
+  box-sizing: border-box;
+}
+
+.webview-card {
+  padding: 28rpx;
+  border-radius: 28rpx;
+  background: #ffffff;
+  border: 1rpx solid #dce6f7;
+  box-shadow: 0 16rpx 48rpx rgba(22, 53, 92, 0.08);
+}
+
+.webview-title {
+  font-size: 34rpx;
+  line-height: 1.4;
+  color: #153258;
+  font-weight: 700;
+}
+
+.webview-desc {
+  display: block;
+  margin-top: 18rpx;
+  font-size: 26rpx;
+  line-height: 1.8;
+  color: #4f6079;
+  white-space: pre-wrap;
+}
+
+.webview-note {
+  margin-top: 18rpx;
+  font-size: 24rpx;
+  line-height: 1.7;
+  color: #66758d;
+}
+
+.webview-btn {
+  margin-top: 24rpx;
+  width: 100%;
+  border-radius: 999rpx;
+  background: linear-gradient(135deg, #1d57f2 0%, #4b8cff 100%);
+  color: #ffffff;
+  font-size: 28rpx;
+  line-height: 88rpx;
+}

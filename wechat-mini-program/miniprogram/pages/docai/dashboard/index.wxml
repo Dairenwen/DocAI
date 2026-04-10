@@ -1,0 +1,98 @@
+<view class="doc-page dashboard-page">
+  <view class="page-shell dashboard-shell">
+    <view class="workbench-top rise-in">
+      <view class="workbench-top-head">
+        <view class="workbench-title">工作台</view>
+        <view class="workbench-refresh">最近刷新 {{lastUpdated}}</view>
+      </view>
+
+      <view class="workbench-account">
+        <view class="workbench-avatar">{{avatarText}}</view>
+        <view class="workbench-account-copy">
+          <view class="workbench-account-name">{{userName}}</view>
+          <view class="workbench-account-status workbench-account-status--{{backendStatusTone}}">
+            {{backendStatusText}}
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view class="panel rise-in dashboard-core-card">
+      <view class="dashboard-card-head">
+        <view>
+          <view class="dashboard-card-title">核心数据</view>
+          <view class="dashboard-card-caption">{{docBreakdownText}}</view>
+        </view>
+        <button class="dashboard-card-btn" bindtap="goDocuments">去上传文件</button>
+      </view>
+
+      <view class="dashboard-stat-grid">
+        <view class="dashboard-stat dashboard-stat--primary">
+          <view class="dashboard-stat-value">{{stats.total}}</view>
+          <view class="dashboard-stat-label">文档总数</view>
+          <view class="dashboard-stat-note">当前账号下全部资料</view>
+        </view>
+        <view class="dashboard-stat">
+          <view class="dashboard-stat-value">{{sourceSummary.parsed}}</view>
+          <view class="dashboard-stat-label">可填表资料</view>
+          <view class="dashboard-stat-note">已完成解析</view>
+        </view>
+        <view class="dashboard-stat">
+          <view class="dashboard-stat-value">{{sourceSummary.parsing}}</view>
+          <view class="dashboard-stat-label">解析中</view>
+          <view class="dashboard-stat-note">后台持续处理中</view>
+        </view>
+        <view class="dashboard-stat">
+          <view class="dashboard-stat-value">{{sourceSummary.failed + sourceSummary.pending}}</view>
+          <view class="dashboard-stat-label">待跟进</view>
+          <view class="dashboard-stat-note">失败或待补齐资料</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="panel rise-in dashboard-tools-card">
+      <view class="dashboard-card-head">
+        <view class="dashboard-card-title">快捷功能</view>
+      </view>
+
+      <view class="dashboard-tool-grid">
+        <view
+          class="dashboard-tool-item"
+          wx:for="{{tools}}"
+          wx:key="key"
+          data-action="{{item.action}}"
+          bindtap="handleQuickAction"
+        >
+          <view class="dashboard-tool-icon dashboard-tool-icon--{{item.tone}}">{{item.iconText}}</view>
+          <view class="dashboard-tool-title">{{item.title}}</view>
+          <view class="dashboard-tool-subtitle">{{item.subtitle}}</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="panel rise-in dashboard-autofill-card">
+      <view class="dashboard-card-head">
+        <view class="dashboard-card-title">智能填表</view>
+        <view class="dashboard-state-pill dashboard-state-pill--{{autofillState.tone}}">
+          {{autofillState.statusText}}
+        </view>
+      </view>
+
+      <view class="dashboard-info-box">
+        <view class="dashboard-info-label">已就绪资料</view>
+        <view class="dashboard-info-value">{{autofillState.readyText}}</view>
+      </view>
+
+      <view class="dashboard-info-box">
+        <view class="dashboard-info-label">当前状态</view>
+        <view class="dashboard-info-value">{{autofillState.hintText}}</view>
+      </view>
+
+      <button class="dashboard-card-btn dashboard-card-btn--wide" bindtap="handleAutofillEntry">
+        {{autofillState.ctaText}}
+      </button>
+    </view>
+
+    <view class="dashboard-inline-notice rise-in" wx:if="{{backendNotice}}">{{backendNotice}}</view>
+  </view>
+</view>

@@ -1,0 +1,67 @@
+<view class="doc-page profile-page">
+  <view class="page-shell">
+    <view class="panel rise-in">
+      <view class="section-head">
+        <view>
+          <view class="section-title">账号信息</view>
+          <view class="section-subtitle">当前登录账号的基本信息</view>
+        </view>
+      </view>
+
+      <view class="profile-user-card">
+        <view class="profile-user-avatar">{{avatarText}}</view>
+        <view class="profile-user-copy">
+          <view class="profile-user-label">用户名</view>
+          <view class="profile-user-name">{{userName}}</view>
+          <view class="profile-user-meta" wx:if="{{userEmail}}">{{userEmail}}</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="panel rise-in">
+      <view class="section-title">账号操作</view>
+      <view class="section-subtitle">查看协议、管理当前账号或联系支持团队反馈问题。</view>
+      <view class="profile-menu">
+        <view class="profile-menu-item" bindtap="openCancelAccount">
+          <view class="profile-menu-copy">
+            <view class="profile-menu-title">注销账号</view>
+            <view class="profile-menu-desc">进入账号与安全页查看说明并直接注销当前账号。</view>
+          </view>
+          <view class="profile-menu-arrow">></view>
+        </view>
+        <view class="profile-menu-item" bindtap="openContact">
+          <view class="profile-menu-copy">
+            <view class="profile-menu-title">联系我们</view>
+            <view class="profile-menu-desc">查看反馈、投诉和人工处理说明。</view>
+          </view>
+          <view class="profile-menu-arrow">></view>
+        </view>
+        <view class="profile-menu-item" bindtap="openAbout">
+          <view class="profile-menu-copy">
+            <view class="profile-menu-title">关于产品</view>
+            <view class="profile-menu-desc">查看产品简介、版本信息和服务说明。</view>
+          </view>
+          <view class="profile-menu-arrow">></view>
+        </view>
+        <view class="profile-menu-item" bindtap="openUserAgreement">
+          <view class="profile-menu-copy">
+            <view class="profile-menu-title">用户协议</view>
+            <view class="profile-menu-desc">查看账号使用规则和服务说明。</view>
+          </view>
+          <view class="profile-menu-arrow">></view>
+        </view>
+        <view class="profile-menu-item" bindtap="openPrivacyPolicy">
+          <view class="profile-menu-copy">
+            <view class="profile-menu-title">隐私政策</view>
+            <view class="profile-menu-desc">查看个人信息收集、使用和权利说明。</view>
+          </view>
+          <view class="profile-menu-arrow">></view>
+        </view>
+      </view>
+
+      <view class="profile-actions">
+        <button class="warn-btn inline-btn profile-logout-btn" bindtap="logout">退出登录</button>
+      </view>
+    </view>
+  </view>
+</view>

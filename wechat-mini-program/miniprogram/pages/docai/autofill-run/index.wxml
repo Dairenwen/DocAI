@@ -1,0 +1,145 @@
+<view class="doc-page">
+  <view class="page-shell">
+    <view class="hero-card rise-in">
+      <view class="hero-kicker">Step 3</view>
+      <view class="hero-title">执行智能填表</view>
+      <view class="hero-desc">
+        这一页负责真正的远端执行。只有当已选资料都进入“可填表”状态后，才会继续解析模板槽位并调用 DocAI 的填表接口。
+      </view>
+    </view>
+
+    <view class="panel rise-in" wx:if="{{flowReady}}">
+      <view class="section-head">
+        <view>
+          <view class="section-title">执行前检查</view>
+          <view class="section-subtitle">{{executionBlockedText}}</view>
+        </view>
+        <view class="pill">{{selectionSummary.ready}} / {{selectionSummary.total}} 就绪</view>
+      </view>
+
+      <view class="metric-grid run-metrics">
+        <view class="metric-card">
+          <view class="metric-value">{{selectionSummary.ready}}</view>
+          <view class="metric-label">已就绪资料</view>
+          <view class="metric-note">满足当前填表前置条件的资料数</view>
+        </view>
+        <view class="metric-card">
+          <view class="metric-value">{{selectionSummary.pending}}</view>
+          <view class="metric-label">处理中资料</view>
+          <view class="metric-note">还在解析或索引中的资料数</view>
+        </view>
+        <view class="metric-card">
+          <view class="metric-value">{{selectionSummary.failed}}</view>
+          <view class="metric-label">失败资料</view>
+          <view class="metric-note">需要先移出后才能继续执行</view>
+        </view>
+        <view class="metric-card">
+          <view class="metric-value">{{sourceDocs.length}}</view>
+          <view class="metric-label">当前选择总数</view>
+          <view class="metric-note">本次实际参与填表的数据源数量</view>
+        </view>
+      </view>
+
+      <view class="run-toolbar">
+        <button class="ghost-btn inline-btn" loading="{{refreshing}}" bindtap="refreshBeforeRun">刷新资料状态</button>
+        <button class="warn-btn inline-btn" bindtap="goPickSources">返回选资料</button>
+        <button class="ghost-btn inline-btn" bindtap="goPickTemplate">重选模板</button>
+      </view>
+    </view>
+
+    <view class="panel rise-in" wx:if="{{flowReady}}">
+      <view class="section-head">
+        <view>
+          <view class="section-title">已选数据源</view>
+          <view class="section-subtitle">处理中或失败的资料会在这里直接标出，避免出现“已经关联但实际不可执行”的假成功。</view>
+        </view>
+      </view>
+
+      <view class="run-doc-list">
+        <view class="run-doc-card run-doc-card--{{item.stageTone}}" wx:for="{{sourceDocs}}" wx:key="id">
+          <view class="run-doc-head">
+            <view class="run-doc-main">
+              <view class="run-doc-title">{{item.fileName}}</view>
+              <view class="run-doc-meta">{{item.typeText}} · {{item.stageText}}</view>
+            </view>
+            <view class="run-doc-stage run-doc-stage--{{item.stageTone}}">
+              {{item.stageText}}
+            </view>
+          </view>
+          <view class="run-doc-desc">{{item.stageDesc}}</view>
+          <button class="ghost-btn inline-btn run-doc-remove" data-id="{{item.id}}" bindtap="removeSourceDoc">移出本次选择</button>
+        </view>
+      </view>
+    </view>
+
+    <view class="panel rise-in" wx:if="{{flowReady}}">
+      <view class="section-head">
+        <view>
+          <view class="section-title">模板与要求</view>
+          <view class="section-subtitle">模板可以来自模板库直接复用，也可以来自本地微信会话文件。两种方式都会在当前页统一执行。</view>
+        </view>
+      </view>
+
+      <view class="run-template-card">
+        <view class="run-template-label">当前模板</view>
+        <view class="run-template-value">{{templateName}}</view>
+        <view wx:if="{{templateSourceText}}" class="template-card-note">{{templateSourceText}}</view>
+      </view>
+
+      <view class="run-textarea-card">
+        <view class="run-template-label">我的要求</view>
+        <textarea
+          class="run-textarea"
+          maxlength="500"
+          placeholder="可选：补充填表要求，例如“优先保留原始日期格式”“将缺失值留空并标记”。"
+          value="{{userRequirement}}"
+          bindinput="handleRequirementInput"
+        />
+        <view class="run-textarea-count">{{userRequirement.length}} / 500</view>
+      </view>
+    </view>
+
+    <view class="panel rise-in" wx:if="{{flowReady}}">
+      <view class="section-head">
+        <view>
+          <view class="section-title">执行进度</view>
+          <view class="section-subtitle">开始后按固定顺序执行，不会在其他页面重复触发任何填表请求。</view>
+        </view>
+      </view>
+
+      <view class="run-progress-list">
+        <view
+          class="run-progress-item {{index < currentProgressStep ? 'run-progress-item--done' : ''}} {{index === currentProgressStep ? 'run-progress-item--active' : ''}}"
+          wx:for="{{progressSteps}}"
+          wx:key="*this"
+        >
+          <view class="run-progress-dot"></view>
+          <view class="run-progress-text">{{item}}</view>
+        </view>
+      </view>
+
+      <view class="run-progress-note" wx:if="{{progressText}}">{{progressText}}</view>
+      <view class="run-error-note" wx:if="{{errorText}}">{{errorText}}</view>
+
+      <button
+        class="solid-btn run-submit-btn"
+        loading="{{submitting}}"
+        disabled="{{selectionSummary.pending > 0 || selectionSummary.failed > 0 || sourceDocs.length === 0 || !currentTemplate}}"
+        bindtap="startAutofill"
+      >
+        开始执行智能填表
+      </button>
+    </view>
+
+    <view class="panel rise-in" wx:if="{{!flowReady}}">
+      <view class="empty-state">
+        <view class="empty-title">当前草稿还不完整</view>
+        <view class="empty-desc">至少需要 1 份数据源文档和 1 个模板，才能进入执行阶段。</view>
+      </view>
+      <view class="run-toolbar run-toolbar--stack">
+        <button class="solid-btn inline-btn" bindtap="goPickSources">去选数据源</button>
+        <button class="ghost-btn inline-btn" bindtap="goPickTemplate">去选模板</button>
+      </view>
+    </view>
+  </view>
+</view>
