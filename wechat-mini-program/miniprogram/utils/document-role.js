@@ -1,3 +1,7 @@
+const {
+  normalizeFileName,
+} = require('./document-name')
+
 const SOURCE_FILE_TYPES = ['docx', 'xlsx', 'md', 'txt']
 const TEMPLATE_FILE_TYPES = ['docx', 'xlsx']
 const RESULT_NAME_PATTERN = /(filled|result|output|成表|结果)/i
@@ -14,12 +18,12 @@ function normalizeId(value) {
 }
 
 function getFileTypeFromName(fileName) {
-  const match = normalizeText(fileName).match(/\.([^.]+)$/)
+  const match = normalizeFileName(fileName).match(/\.([^.]+)$/)
   return match ? String(match[1] || '').toLowerCase() : ''
 }
 
 function resolveFileName(doc) {
-  return normalizeText(
+  return normalizeFileName(
     doc && (
       doc.fileName
       || doc.title

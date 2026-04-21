@@ -6,6 +6,7 @@
 #include <QUrlQuery>
 #include <QSslConfiguration>
 #include <QSslError>
+#include <QTimer>
 
 #include <QDebug>
 
@@ -17,7 +18,7 @@ ApiClient& ApiClient::instance() {
 ApiClient::ApiClient(QObject *parent)
     : QObject(parent)
     , m_nam(new QNetworkAccessManager(this))
-    , m_baseUrl("https://docai.sa1.tunnelfrp.com/api/v1")
+    , m_baseUrl("http://localhost:8080/api/v1")
 {
 }
 
@@ -39,6 +40,13 @@ void ApiClient::handleReply(QNetworkReply *reply, Callback cb) {
     connect(reply, QOverload<const QList<QSslError>&>::of(&QNetworkReply::sslErrors),
             reply, [](const QList<QSslError>&) { /* ignored globally */ });
     reply->ignoreSslErrors();
+    // 300s timeout for long-running fill operations
+    QTimer *timer = new QTimer(reply);
+    timer->setSingleShot(true);
+    connect(timer, &QTimer::timeout, reply, [reply]() {
+        if (reply->isRunning()) reply->abort();
+    });
+    timer->start(300000);
     connect(reply, &QNetworkReply::finished, this, [this, reply, cb]() {
         reply->deleteLater();
         qDebug() << "[API]" << reply->request().url().toString()
@@ -79,6 +87,12 @@ void ApiClient::handleBlobReply(QNetworkReply *reply, BlobCallback cb) {
     connect(reply, QOverload<const QList<QSslError>&>::of(&QNetworkReply::sslErrors),
             reply, [](const QList<QSslError>&) { /* ignored globally */ });
     reply->ignoreSslErrors();
+    QTimer *timer = new QTimer(reply);
+    timer->setSingleShot(true);
+    connect(timer, &QTimer::timeout, reply, [reply]() {
+        if (reply->isRunning()) reply->abort();
+    });
+    timer->start(300000);
     connect(reply, &QNetworkReply::finished, this, [this, reply, cb]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {

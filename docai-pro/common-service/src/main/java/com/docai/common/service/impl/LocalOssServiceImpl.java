@@ -60,8 +60,17 @@ public class LocalOssServiceImpl implements OssService {
 
     @Override
     public void deleteFile(String ossKey) {
+        if (ossKey == null || ossKey.isBlank()) {
+            log.warn("deleteFile called with empty ossKey, skipping");
+            return;
+        }
         try {
             Path targetFile = LOCAL_ROOT.resolve(ossKey).normalize();
+            // Safety guard: never delete the root OSS directory itself
+            if (targetFile.equals(LOCAL_ROOT)) {
+                log.warn("deleteFile resolved to LOCAL_ROOT (ossKey={}), skipping to prevent data loss", ossKey);
+                return;
+            }
             Files.deleteIfExists(targetFile);
         } catch (IOException e) {
             throw new RuntimeException("Local OSS delete failed: " + ossKey, e);

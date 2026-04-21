@@ -1,0 +1,24 @@
+{
+  "name": "docai-miniprogram",
+  "version": "1.0.0",
+  "description": "DocAI WeChat miniprogram",
+  "scripts": {
+    "lint": "eslint miniprogram/app.js miniprogram/config.js miniprogram/api miniprogram/utils miniprogram/pages/docai/login miniprogram/pages/docai/dashboard miniprogram/pages/docai/documents miniprogram/pages/docai/autofill miniprogram/pages/docai/autofill-picker miniprogram/pages/docai/autofill-run miniprogram/pages/docai/autofill-result miniprogram/pages/docai/autofill-web miniprogram/pages/docai/chat miniprogram/pages/docai/profile miniprogram/pages/legal miniprogram/pages/account-security miniprogram/pages/contact miniprogram/pages/about --ext .js",
+    "lint:fix": "npm.cmd run lint -- --fix"
+  },
+  "author": "DocAI",
+  "license": "MIT",
+  "private": true,
+  "devDependencies": {
+    "eslint": "^5.5.0",
+    "eslint-config-airbnb-base": "13.1.0",
+    "eslint-plugin-import": "^2.14.0",
+    "eslint-plugin-node": "^7.0.1",
+    "eslint-plugin-promise": "^4.0.0"
+  },
+  "dependencies": {
+    "miniprogram-barrage": "^1.1.0",
+    "miniprogram-recycle-view": "^0.1.5",
+    "wxml-to-canvas": "^1.1.1"
+  }
+}

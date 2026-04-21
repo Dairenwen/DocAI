@@ -8,6 +8,9 @@ const {
   resolveAutofillOutputName,
 } = require('./autofill-name')
 const {
+  normalizeFileName,
+} = require('./document-name')
+const {
   normalizeDocRecord,
 } = require('./document-role')
 
@@ -44,7 +47,7 @@ function uniqueIds(list) {
 }
 
 function getFileTypeFromName(fileName) {
-  const normalizedName = normalizeText(fileName)
+  const normalizedName = normalizeFileName(fileName)
   const match = normalizedName.match(/\.([^.]+)$/)
   return match ? String(match[1] || '').toLowerCase() : ''
 }
@@ -74,7 +77,7 @@ function normalizeTemplateDoc(doc) {
   const normalizedDoc = normalizeDocRecord(doc, {
     preferredRole: 'template',
   }) || {}
-  const fileName = normalizeText(
+  const fileName = normalizeFileName(
     normalizedDoc.fileName
     || doc.fileName
     || doc.title
@@ -160,7 +163,7 @@ function normalizeDraft(draft) {
 }
 
 function normalizeResultSession(result) {
-  const templateName = normalizeText(result && result.templateName)
+  const templateName = normalizeFileName(result && result.templateName)
   const outputName = resolveAutofillOutputName(result)
   const sourceDocs = (Array.isArray(result && result.sourceDocs) ? result.sourceDocs : [])
     .map(normalizeSourceDoc)

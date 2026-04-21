@@ -4,6 +4,9 @@
     "pages/docai/dashboard/index",
     "pages/docai/documents/index",
     "pages/docai/autofill/index",
+    "pages/docai/autofill-picker/index",
+    "pages/docai/autofill-run/index",
+    "pages/docai/autofill-result/index",
     "pages/docai/autofill-web/index",
     "pages/docai/chat/index",
     "pages/docai/profile/index",
@@ -64,7 +67,7 @@
   "themeLocation": "demo.theme.json",
   "darkmode": true,
   "resizable": true,
-  "__usePrivacyCheck__": true,
+  "__usePrivacyCheck__": false,
   "useExtendedLib": {
     "weui": true
   },

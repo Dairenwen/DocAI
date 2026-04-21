@@ -1,4 +1,4 @@
-const {
+﻿const {
   normalizeFileName,
 } = require('./document-name')
 const {
@@ -46,7 +46,6 @@ function buildUnsupportedFileMessage(extensions) {
     ? '仅支持 ' + extensionText + ' 文件'
     : '当前文件类型暂不支持'
 }
-
 function isAllowedExtension(fileName, extensions) {
   const normalizedExtensions = normalizeExtensionList(extensions)
   if (!normalizedExtensions.length) {
@@ -77,7 +76,6 @@ function buildRejectedEntry(file, reason) {
     issueText: buildUploadIssueText(file && file.name, reason),
   }
 }
-
 async function selectLocalFiles(options) {
   const settings = Object.assign({
     count: 1,
@@ -120,7 +118,6 @@ async function selectLocalFiles(options) {
     totalPickedCount: pickedFiles.length,
   }
 }
-
 async function uploadSelectedFiles(files, options) {
   const settings = Object.assign({
     uploadOne: null,
@@ -178,9 +175,10 @@ async function uploadSelectedFiles(files, options) {
     issueTexts: failedItems.map((item) => item.issueText),
   }
 }
-
 module.exports = {
   formatSupportedExtensions,
   selectLocalFiles,
   uploadSelectedFiles,
 }
+
+

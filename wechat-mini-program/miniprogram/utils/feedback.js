@@ -1,4 +1,4 @@
-function trimText(text, maxLength) {
+﻿function trimText(text, maxLength) {
   const normalizedText = String(text || '').replace(/\s+/g, ' ').trim()
   if (!normalizedText) {
     return ''
@@ -100,15 +100,14 @@ function getFriendlyErrorMessage(error, fallbackMessage, options) {
 
   return fallbackMessage || settings.serverMessage
 }
-
 function buildUploadIssueText(fileName, reason) {
   const normalizedFileName = trimText(fileName, 24) || '未命名文件'
   const normalizedReason = trimText(reason, 42) || '上传未完成，请稍后重试'
   return normalizedFileName + '：' + normalizedReason
 }
-
 module.exports = {
   trimText,
   getFriendlyErrorMessage,
   buildUploadIssueText,
 }
+

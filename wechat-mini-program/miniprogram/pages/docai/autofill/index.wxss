@@ -1302,3 +1302,67 @@
   flex-wrap: wrap;
   gap: 8rpx 12rpx;
 }
+
+.privacy-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48rpx;
+  background: rgba(15, 23, 42, 0.45);
+  box-sizing: border-box;
+}
+
+.privacy-dialog {
+  width: 100%;
+  max-width: 640rpx;
+  padding: 40rpx 36rpx 32rpx;
+  border-radius: 32rpx;
+  background: #ffffff;
+  box-shadow: 0 24rpx 80rpx rgba(15, 23, 42, 0.22);
+  box-sizing: border-box;
+}
+
+.privacy-dialog-title {
+  color: #162033;
+  font-size: 34rpx;
+  font-weight: 700;
+}
+
+.privacy-dialog-desc {
+  margin-top: 18rpx;
+  color: #5d6a7f;
+  font-size: 27rpx;
+  line-height: 1.7;
+}
+
+.privacy-dialog-links {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 20rpx;
+}
+
+.privacy-dialog-link {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: #1f58ef;
+  font-size: 26rpx;
+  line-height: 1.5;
+}
+
+.privacy-dialog-link::after {
+  border: 0;
+}
+
+.privacy-dialog-actions {
+  display: flex;
+  gap: 18rpx;
+  margin-top: 32rpx;
+}
+
+.privacy-dialog-actions .inline-btn {
+  flex: 1;
+}

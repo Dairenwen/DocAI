@@ -1,3 +1,7 @@
+const {
+  normalizeFileName,
+} = require('./document-name')
+
 function normalizeText(value) {
   return String(value || '').trim()
 }
@@ -40,7 +44,7 @@ function formatDurationText(durationMs) {
 }
 
 function resolveResultFileName(result) {
-  return normalizeText(
+  return normalizeFileName(
     result && (
       result.outputName
       || result.fileName

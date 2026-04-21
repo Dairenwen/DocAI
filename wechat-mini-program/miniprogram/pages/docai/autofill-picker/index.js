@@ -452,6 +452,15 @@ Page({
     return typeof action === 'function' ? action() : Promise.resolve()
   },
 
+  runNativePrivacyApi(scene, action) {
+    const app = getApp()
+    if (app && typeof app.runNativePrivacyApi === 'function') {
+      return app.runNativePrivacyApi(scene, action)
+    }
+
+    return typeof action === 'function' ? action() : Promise.resolve()
+  },
+
   clearSourcePolling() {
     if (this.sourcePollTimer) {
       clearTimeout(this.sourcePollTimer)
@@ -827,14 +836,14 @@ Page({
   },
 
   async uploadSourceFiles() {
-    if (!ensureLogin() || this.data.uploading) {
+    if (!ensureLogin() || this.data.uploading || this.uploadFlowRunning) {
       return
     }
 
-    try {
-      this.setData({ uploading: true })
+    this.uploadFlowRunning = true
 
-      const selection = await this.ensurePrivacyAuthorized('autofill-source-upload', () => selectLocalFiles({
+    try {
+      const selection = await this.runNativePrivacyApi('autofill-source-upload', () => selectLocalFiles({
         count: 10,
         allowedExtensions: SOURCE_EXTENSIONS,
       }))
@@ -849,12 +858,16 @@ Page({
         return
       }
 
+      this.setData({ uploading: true })
+
       wx.showLoading({
         title: '正在上传',
         mask: true,
       })
 
-      const uploadResult = await uploadSelectedFiles(validFiles, {
+      const uploadResult = await this.ensurePrivacyAuthorized(
+        'autofill-source-upload',
+        () => uploadSelectedFiles(validFiles, {
         beforeUpload: () => api.checkUploadConnection(),
         uploadOne: (file) => api.uploadDocument(file.path, file.name),
         failureMessage: '资料上传失败',
@@ -864,7 +877,8 @@ Page({
             mask: true,
           })
         },
-      })
+        })
+      )
 
       const uploadedDocs = uploadResult.successItems
         .map((item) => (item && item.response && item.response.data) || null)
@@ -911,6 +925,7 @@ Page({
     } finally {
       wx.hideLoading()
       this.setData({ uploading: false })
+      this.uploadFlowRunning = false
     }
   },
 
@@ -941,7 +956,7 @@ Page({
     }
 
     try {
-      const selection = await this.ensurePrivacyAuthorized('autofill-template-upload', () => selectLocalFiles({
+      const selection = await this.runNativePrivacyApi('autofill-template-upload', () => selectLocalFiles({
         count: 1,
         allowedExtensions: TEMPLATE_EXTENSIONS,
       }))

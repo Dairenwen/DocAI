@@ -196,6 +196,48 @@ public class AiServiceImpl implements AiService {
         sendProgressEventWithData(sseEmitter, PROGRESS, ProcessStage.PROCESS_CHAT,
             "未关联文档，执行通用在线对话", null, null, null, null);
 
+        // 检测填表意图 —— 若命中则返回 Agent 引导响应，由前端驱动多步骤工作流
+        String userInputLower = aiChatRequest.getUserInput().toLowerCase();
+        boolean isFillIntent = java.util.Arrays.asList(
+            "填表", "填写表格", "填充模板", "自动填表", "帮我填", "智能填表",
+            "填写表单", "表格填写", "模板填充", "填写报表", "填好的表",
+            "帮填", "自动填写", "一键填表", "批量填表", "填写数据",
+            "autofill", "fill template", "auto fill"
+        ).stream().anyMatch(userInputLower::contains);
+
+        if (isFillIntent) {
+            String reply = "好的，我来帮您完成智能填表任务！\n\n" +
+                "**DocAI 智能填表流程：**\n\n" +
+                "1. 📁 **上传源文档** — 包含需要提取信息的文档（支持 .docx / .xlsx / .txt / .md）\n" +
+                "2. ⏳ **AI 自动提取** — 后台智能提取文档中的结构化字段\n" +
+                "3. 📋 **上传表格模板** — 需要填写的表格文件（支持 .xlsx / .docx）\n" +
+                "4. \uD83D\uDCDD **输入需求说明**（可选）— 例如\"仅填写2024年北京数据\"\n" +
+                "5. ✅ **查看填充结果** — 展示填充明细、置信度分析，并提供下载\n\n" +
+                "请点击下方 **「开始填表」** 按钮，开始上传源文档：";
+
+            Map<String, Object> agentAction = new HashMap<>();
+            agentAction.put("type", "agent_fill_start");
+            agentAction.put("step", "upload_source_docs");
+            agentAction.put("label", "开始填表");
+
+            aiRequestEntity.setAiResponse(reply);
+            aiRequestEntity.setStatus(AiRequestStatus.SUCCESS.getCode());
+            aiRequestMapper.updateById(aiRequestEntity);
+
+            return AiUnifiedResponse.builder()
+                .requestId(aiRequestEntity.getId())
+                .aiResponse(reply)
+                .sqlQuery(null)
+                .resultData(Collections.emptyList())
+                .resultCount(0)
+                .status(AiRequestStatus.SUCCESS.getCode())
+                .needChart(false)
+                .isModificationRequest(false)
+                .modifiedExcelUrl(null)
+                .agentAction(agentAction)
+                .build();
+        }
+
         try {
             String prompt = String.format(
                 "你是DocAI智能助手。请根据用户输入给出专业、简洁、可执行的中文回答。用户输入：%s",
@@ -448,8 +490,8 @@ public class AiServiceImpl implements AiService {
         queryWrapper.orderByDesc(AiRequestEntity::getId);
 
         // 2. 分页查询结果
-        long current = aiRequestHistoryRequest.getPageNum();
-        long size = aiRequestHistoryRequest.getPageSize();
+        long current = aiRequestHistoryRequest.getPageNum() != null ? aiRequestHistoryRequest.getPageNum() : 1;
+        long size = aiRequestHistoryRequest.getPageSize() != null ? aiRequestHistoryRequest.getPageSize() : 10;
 
         Page<AiRequestEntity> page = new Page<>(current, size);
 

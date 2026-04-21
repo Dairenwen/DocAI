@@ -1,13 +1,17 @@
 package com.docai.file.dto.request;
 
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 /**
  * 文件预览的请求
  */
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class ExcelPreviewRequest {
 
     /**

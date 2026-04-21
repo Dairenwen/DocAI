@@ -217,4 +217,28 @@
       </view>
     </block>
   </view>
+
+  <view wx:if="{{privacyDialog.visible}}" class="privacy-mask">
+    <view class="privacy-dialog">
+      <view class="privacy-dialog-title">隐私授权提示</view>
+      <view class="privacy-dialog-desc">
+        为了{{privacyDialog.sceneText}}，请先阅读并同意《用户协议》《隐私政策》。
+      </view>
+      <view class="privacy-dialog-links">
+        <button class="privacy-dialog-link" bindtap="openUserAgreement">查看用户协议</button>
+        <button class="privacy-dialog-link" bindtap="openPrivacyPolicy">查看隐私政策</button>
+      </view>
+      <view class="privacy-dialog-actions">
+        <button class="ghost-btn inline-btn" bindtap="handlePrivacyDisagree">暂不同意</button>
+        <button
+          id="docai-privacy-agree-btn"
+          class="solid-btn inline-btn"
+          open-type="agreePrivacyAuthorization"
+          bindagreeprivacyauthorization="handlePrivacyAgree"
+        >
+          同意并继续
+        </button>
+      </view>
+    </view>
+  </view>
 </view>

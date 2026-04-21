@@ -37,10 +37,6 @@ function toStageKey(doc) {
   return 'uploaded'
 }
 
-function isReadyDoc(doc) {
-  return toStageKey(doc) === 'ready'
-}
-
 function buildMissingDoc(id, fallbackDoc) {
   const fileName = String((fallbackDoc && fallbackDoc.fileName) || '').trim()
 
@@ -170,6 +166,15 @@ Page({
     }
 
     this.loadDraftState({ silent: true })
+  },
+
+  ensurePrivacyAuthorized(scene, action) {
+    const app = getApp()
+    if (app && typeof app.ensurePrivacyAuthorized === 'function') {
+      return app.ensurePrivacyAuthorized(scene, action)
+    }
+
+    return typeof action === 'function' ? action() : Promise.resolve()
   },
 
   buildExecutionBlockedText(selectionSummary) {
@@ -397,9 +402,12 @@ Page({
       let templateId = templateDraftState.selectedTemplateId || ''
 
       if (templateDraftState.templateLocalPath) {
-        const uploadRes = await api.uploadTemplateFile(
-          templateDraftState.templateLocalPath,
-          templateDraftState.templateName
+        const uploadRes = await this.ensurePrivacyAuthorized(
+          'autofill-template-upload',
+          () => api.uploadTemplateFile(
+            templateDraftState.templateLocalPath,
+            templateDraftState.templateName
+          )
         )
         templateInfo = (uploadRes && uploadRes.data) || uploadRes || {}
         templateId = String((templateInfo && (templateInfo.id || templateInfo.templateId)) || '')

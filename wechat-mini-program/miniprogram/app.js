@@ -17,6 +17,7 @@ const initialRuntimeConfig = config && typeof config.getRuntimeConfig === 'funct
   ? config.getRuntimeConfig()
   : config
 const PRIVACY_AGREE_BUTTON_ID = 'docai-privacy-agree-btn'
+const BYPASS_PRIVACY_FOR_TEST = true
 
 const PRIVACY_SCENE_TEXT = {
   'account-login': '登录或注册 DocAI 账号',
@@ -135,6 +136,11 @@ App({
     this.__pendingPrivacyScene = 'general'
     this.__pendingPrivacyAction = null
 
+    if (BYPASS_PRIVACY_FOR_TEST) {
+      this.globalData.privacySetting = { needAuthorization: false }
+      return
+    }
+
     this.refreshPrivacySetting()
 
     if (typeof wx === 'undefined' || !wx || typeof wx.onNeedPrivacyAuthorization !== 'function') {
@@ -148,6 +154,11 @@ App({
   },
 
   refreshPrivacySetting() {
+    if (BYPASS_PRIVACY_FOR_TEST) {
+      this.globalData.privacySetting = { needAuthorization: false }
+      return Promise.resolve(this.globalData.privacySetting)
+    }
+
     if (typeof wx === 'undefined' || !wx || typeof wx.getPrivacySetting !== 'function') {
       this.globalData.privacySetting = { needAuthorization: false }
       return Promise.resolve(this.globalData.privacySetting)
@@ -303,6 +314,70 @@ App({
     pendingAction.reject(this.createPrivacyError(scene || pendingAction.scene, rawErr))
   },
 
+  requestPrivacyAuthorizationWithDialog(scene) {
+    const currentScene = String(scene || 'general')
+
+    return new Promise((resolve, reject) => {
+      this.replacePendingPrivacyAction({
+        scene: currentScene,
+        action: () => undefined,
+        resolve,
+        reject,
+      })
+      this.showPrivacyDialog(currentScene)
+    })
+  },
+
+  requestPrivacyAuthorization(scene) {
+    this.initPrivacyFlow()
+
+    if (BYPASS_PRIVACY_FOR_TEST) {
+      return Promise.resolve()
+    }
+
+    const currentScene = String(scene || 'general')
+    this.__pendingPrivacyScene = currentScene
+
+    if (typeof wx === 'undefined' || !wx || typeof wx.requirePrivacyAuthorize !== 'function') {
+      return this.requestPrivacyAuthorizationWithDialog(currentScene)
+    }
+
+    return new Promise((resolve, reject) => {
+      wx.requirePrivacyAuthorize({
+        success: (res) => {
+          this.hidePrivacyDialog()
+          this.refreshPrivacySetting()
+          resolve(res)
+        },
+        fail: (err) => {
+          const rawMessage = String((err && (err.errMsg || err.message)) || '').toLowerCase()
+          const canFallbackToDialog = (
+            rawMessage.indexOf('invalid request data') !== -1
+            || rawMessage.indexOf('not support') !== -1
+            || rawMessage.indexOf('not supported') !== -1
+            || rawMessage.indexOf('no such api') !== -1
+            || rawMessage.indexOf('caniuse') !== -1
+          )
+
+          if (canFallbackToDialog) {
+            this.hidePrivacyDialog()
+            this.requestPrivacyAuthorizationWithDialog(currentScene)
+              .then(resolve)
+              .catch(reject)
+              .finally(() => {
+                this.refreshPrivacySetting()
+              })
+            return
+          }
+
+          this.hidePrivacyDialog()
+          this.refreshPrivacySetting()
+          reject(this.createPrivacyError(currentScene, err))
+        },
+      })
+    })
+  },
+
   handlePrivacyAgree(event) {
     const buttonId = (event && event.currentTarget && event.currentTarget.id) || PRIVACY_AGREE_BUTTON_ID
     this.resolvePendingPrivacyAuthorization({
@@ -343,30 +418,39 @@ App({
   },
 
   async ensurePrivacyAuthorized(scene, action) {
+    if (BYPASS_PRIVACY_FOR_TEST) {
+      this.hidePrivacyDialog()
+      return Promise.resolve(typeof action === 'function' ? action() : undefined)
+    }
+
     this.initPrivacyFlow()
 
-    this.__pendingPrivacyScene = String(scene || 'general')
+    const previousScene = this.__pendingPrivacyScene || 'general'
+    const currentScene = String(scene || 'general')
+    this.__pendingPrivacyScene = currentScene
 
     try {
       const privacySetting = await this.refreshPrivacySetting()
-      if (!privacySetting || !privacySetting.needAuthorization) {
-        return typeof action === 'function' ? action() : undefined
+      if (privacySetting && privacySetting.needAuthorization) {
+        await this.requestPrivacyAuthorization(currentScene)
       }
 
-      return await new Promise((resolve, reject) => {
-        this.replacePendingPrivacyAction({
-          scene: this.__pendingPrivacyScene,
-          action,
-          resolve,
-          reject,
-        })
-        this.showPrivacyDialog(this.__pendingPrivacyScene)
-      })
-    } catch (err) {
-      throw this.createPrivacyError(scene, err)
+      return await Promise.resolve(typeof action === 'function' ? action() : undefined)
     } finally {
-      this.__pendingPrivacyScene = 'general'
+      if (this.__pendingPrivacyScene === currentScene) {
+        this.__pendingPrivacyScene = previousScene
+      }
+      this.refreshPrivacySetting()
     }
+  },
+
+  runNativePrivacyApi(scene, action) {
+    if (BYPASS_PRIVACY_FOR_TEST) {
+      this.hidePrivacyDialog()
+      return typeof action === 'function' ? action() : Promise.resolve()
+    }
+
+    return this.ensurePrivacyAuthorized(scene, action)
   },
 
   openPrivacyContract() {

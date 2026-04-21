@@ -7,6 +7,7 @@
 #include <QStandardPaths>
 #include <QGraphicsDropShadowEffect>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QMessageBox>
 #include <QDialog>
 #include <QTableWidget>
@@ -16,6 +17,7 @@
 #include <QMouseEvent>
 #include <QTimer>
 #include <QMimeData>
+#include <algorithm>
 #include "../utils/IconHelper.h"
 #include "../utils/Toast.h"
 
@@ -361,24 +363,14 @@ QWidget* AutoFillPage::createStep3() {
     page->setStyleSheet("background: white;");
     QVBoxLayout *layout = new QVBoxLayout(page);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(16);
+    layout->setSpacing(12);
 
+    // Title + action buttons row
+    QHBoxLayout *actionRow = new QHBoxLayout;
     QLabel *title = new QLabel("\xe6\x99\xba\xe8\x83\xbd\xe5\xa1\xab\xe8\xa1\xa8\xe5\xb7\xb2\xe5\xae\x8c\xe6\x88\x90");
     title->setStyleSheet("font-size: 20px; font-weight: 700; color: #111827;");
 
-    // Result summary banner
-    m_resultSummary = new QWidget;
-    m_resultSummary->setObjectName("resSummary");
-    m_resultSummary->setStyleSheet("#resSummary { background: #EEF2FF; border: 1px solid #C7D2FE; border-radius: 10px; }");
-    QHBoxLayout *summaryLayout = new QHBoxLayout(m_resultSummary);
-    summaryLayout->setContentsMargins(16, 10, 16, 10);
-    m_resultSummaryLabel = new QLabel;
-    m_resultSummaryLabel->setStyleSheet("font-size: 13px; color: #4F46E5;");
-    summaryLayout->addWidget(m_resultSummaryLabel, 1);
-
-    // Top action buttons
-    QHBoxLayout *actionRow = new QHBoxLayout;
-    QPushButton *dlAllBtn = new QPushButton("\xe4\xb8\x8b\xe8\xbd\xbd\xe7\xbb\x93\xe6\x9e\x9c");
+    QPushButton *dlAllBtn = new QPushButton("\xe4\xb8\x8b\xe8\xbd\xbd\xe5\x85\xa8\xe9\x83\xa8\xe7\xbb\x93\xe6\x9e\x9c");
     dlAllBtn->setMinimumHeight(36);
     dlAllBtn->setCursor(Qt::PointingHandCursor);
     dlAllBtn->setStyleSheet("QPushButton { background: #4F46E5; color: white; border: none; border-radius: 6px; padding: 0 16px; font-size: 13px; font-weight: 600; }"
@@ -397,24 +389,103 @@ QWidget* AutoFillPage::createStep3() {
     actionRow->addWidget(dlAllBtn);
     actionRow->addWidget(continueBtn);
 
+    // Result summary banner
+    m_resultSummary = new QWidget;
+    m_resultSummary->setObjectName("resSummary");
+    m_resultSummary->setStyleSheet("#resSummary { background: #EEF2FF; border: 1px solid #C7D2FE; border-radius: 10px; }");
+    QHBoxLayout *summaryLayout = new QHBoxLayout(m_resultSummary);
+    summaryLayout->setContentsMargins(16, 10, 16, 10);
+    QLabel *checkIcon = new QLabel("\xe2\x9c\x85");
+    checkIcon->setStyleSheet("font-size: 16px;");
+    m_resultSummaryLabel = new QLabel;
+    m_resultSummaryLabel->setStyleSheet("font-size: 13px; color: #4F46E5;");
+    summaryLayout->addWidget(checkIcon);
+    summaryLayout->addWidget(m_resultSummaryLabel, 1);
+
+    // Compact result file list
     m_resultList = new QListWidget;
+    m_resultList->setMaximumHeight(120);
     m_resultList->setStyleSheet(
-        "QListWidget { border: none; background: transparent; }"
-        "QListWidget::item { background: white; border-radius: 10px; margin: 6px 0; padding: 16px; }"
+        "QListWidget { border: 1px solid #E5E7EB; border-radius: 8px; background: white; }"
+        "QListWidget::item { padding: 0; border-bottom: 1px solid #F3F4F6; }"
         "QListWidget::item:hover { background: #F9FAFB; }");
 
-    QPushButton *backBtn = new QPushButton("\xe7\xbb\xa7\xe7\xbb\xad\xe5\xa1\xab\xe5\x85\x85\xe6\x96\xb0\xe6\xa8\xa1\xe6\x9d\xbf");
-    backBtn->setMinimumHeight(44);
-    backBtn->setCursor(Qt::PointingHandCursor);
-    backBtn->setStyleSheet(
-        "QPushButton { background: white; color: #4F46E5; border: 2px solid #C7D2FE; border-radius: 6px; font-size: 14px; font-weight: 600; }"
-        "QPushButton:hover { background: #EEF2FF; }");
-    connect(backBtn, &QPushButton::clicked, [this]() { goToStep(0); });
+    // Tab widget for detail / analysis / preview
+    m_resultTabs = new QTabWidget;
+    m_resultTabs->setStyleSheet(
+        "QTabWidget::pane { border: 1px solid #E5E7EB; border-radius: 8px; background: white; }"
+        "QTabBar::tab { padding: 8px 20px; font-size: 13px; font-weight: 500; color: #6B7280; border: none; border-bottom: 2px solid transparent; }"
+        "QTabBar::tab:selected { color: #4F46E5; border-bottom: 2px solid #4F46E5; }"
+        "QTabBar::tab:hover { color: #4F46E5; background: #F5F3FF; }");
+
+    // Detail tab
+    QWidget *detailPage = new QWidget;
+    QVBoxLayout *detailLayout = new QVBoxLayout(detailPage);
+    detailLayout->setContentsMargins(0, 8, 0, 0);
+    m_detailTable = new QTableWidget;
+    m_detailTable->setColumnCount(5);
+    m_detailTable->setHorizontalHeaderLabels({"\xe5\xad\x97\xe6\xae\xb5\xe5\x90\x8d\xe7\xa7\xb0", "\xe5\xa1\xab\xe5\x85\x85\xe5\x80\xbc", "\xe7\xbd\xae\xe4\xbf\xa1\xe5\xba\xa6", "\xe5\x86\xb3\xe7\xad\x96\xe6\x96\xb9\xe5\xbc\x8f", "\xe5\x86\xb3\xe7\xad\x96\xe5\x8e\x9f\xe5\x9b\xa0"});
+    m_detailTable->horizontalHeader()->setStretchLastSection(true);
+    m_detailTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_detailTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_detailTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
+    m_detailTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed);
+    m_detailTable->setColumnWidth(2, 140);
+    m_detailTable->setColumnWidth(3, 100);
+    m_detailTable->verticalHeader()->setVisible(false);
+    m_detailTable->setShowGrid(false);
+    m_detailTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_detailTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_detailTable->setAlternatingRowColors(true);
+    m_detailTable->setStyleSheet(
+        "QTableWidget { border: none; font-size: 12px; }"
+        "QTableWidget::item { padding: 6px 8px; border-bottom: 1px solid #F3F4F6; }"
+        "QTableWidget::item:hover { background: #F9FAFB; }"
+        "QHeaderView::section { background: #F9FAFB; border: none; border-bottom: 2px solid #E5E7EB; padding: 8px; font-weight: 600; color: #374151; font-size: 12px; }");
+    detailLayout->addWidget(m_detailTable);
+    m_resultTabs->addTab(detailPage, "\xe5\xa1\xab\xe5\x85\x85\xe6\x98\x8e\xe7\xbb\x86");
+
+    // Analysis tab
+    m_analysisWidget = new QWidget;
+    QScrollArea *analysisScroll = new QScrollArea;
+    analysisScroll->setWidgetResizable(true);
+    analysisScroll->setFrameShape(QFrame::NoFrame);
+    analysisScroll->setWidget(m_analysisWidget);
+    m_resultTabs->addTab(analysisScroll, "\xe5\x88\x86\xe6\x9e\x90\xe7\xbb\x93\xe6\x9e\x9c");
+
+    // Preview tab (download-focused since Qt can't render docx/xlsx inline)
+    QWidget *previewPage = new QWidget;
+    QVBoxLayout *previewLayout = new QVBoxLayout(previewPage);
+    previewLayout->setContentsMargins(24, 24, 24, 24);
+    previewLayout->setAlignment(Qt::AlignTop);
+    QLabel *previewHint = new QLabel("\xe7\x82\xb9\xe5\x87\xbb\xe4\xb8\x8a\xe6\x96\xb9\xe6\x96\x87\xe4\xbb\xb6\xe5\x88\x97\xe8\xa1\xa8\xe4\xb8\xad\xe7\x9a\x84\xe3\x80\x8c\xe4\xb8\x8b\xe8\xbd\xbd\xe3\x80\x8d\xe6\x8c\x89\xe9\x92\xae\xe4\xbf\x9d\xe5\xad\x98\xe7\xbb\x93\xe6\x9e\x9c\xe6\x96\x87\xe4\xbb\xb6\xef\xbc\x8c\xe7\x84\xb6\xe5\x90\x8e\xe4\xbd\xbf\xe7\x94\xa8 Office \xe6\x89\x93\xe5\xbc\x80\xe9\xa2\x84\xe8\xa7\x88\xe3\x80\x82\xe6\x88\x96\xe8\x80\x85\xe7\x82\xb9\xe5\x87\xbb\xe4\xb8\x8b\xe6\x96\xb9\xe6\x8c\x89\xe9\x92\xae\xe5\xbf\xab\xe9\x80\x9f\xe6\x89\x93\xe5\xbc\x80\xe3\x80\x82");
+    previewHint->setWordWrap(true);
+    previewHint->setStyleSheet("font-size: 13px; color: #6B7280;");
+    QPushButton *openFileBtn = new QPushButton("\xe4\xb8\x8b\xe8\xbd\xbd\xe5\xb9\xb6\xe6\x89\x93\xe5\xbc\x80\xe7\xac\xac\xe4\xb8\x80\xe4\xb8\xaa\xe7\xbb\x93\xe6\x9e\x9c");
+    openFileBtn->setMinimumHeight(44);
+    openFileBtn->setCursor(Qt::PointingHandCursor);
+    openFileBtn->setStyleSheet(
+        "QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #818CF8, stop:1 #4F46E5);"
+        "  color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; padding: 0 24px; }"
+        "QPushButton:hover { background: #4F46E5; }");
+    connect(openFileBtn, &QPushButton::clicked, [this]() {
+        for (const auto &r : m_results) {
+            if (r.status == "success" && r.templateId > 0) {
+                downloadResult(r.templateId);
+                return;
+            }
+        }
+    });
+    previewLayout->addWidget(previewHint);
+    previewLayout->addSpacing(16);
+    previewLayout->addWidget(openFileBtn);
+    previewLayout->addStretch();
+    m_resultTabs->addTab(previewPage, "\xe7\xbb\x93\xe6\x9e\x9c\xe9\xa2\x84\xe8\xa7\x88");
 
     layout->addLayout(actionRow);
     layout->addWidget(m_resultSummary);
-    layout->addWidget(m_resultList, 1);
-    layout->addWidget(backBtn);
+    layout->addWidget(m_resultList);
+    layout->addWidget(m_resultTabs, 1);
 
     return page;
 }
@@ -702,8 +773,11 @@ void AutoFillPage::startFilling() {
 
     goToStep(1);
     m_results.clear();
-    m_fillStatusLabel->setText("正在上传模板并填充...");
-    m_fillDetailLabel->setText(QString("共 %1 个模板，AI 正在处理...").arg(m_templateFilePaths.size()));
+    m_decisions.clear();
+    m_downloadedBlobs.clear();
+    m_fillTimer.start();
+    m_fillStatusLabel->setText("\xe6\xad\xa3\xe5\x9c\xa8\xe4\xb8\x8a\xe4\xbc\xa0\xe6\xa8\xa1\xe6\x9d\xbf\xe5\xb9\xb6\xe5\xa1\xab\xe5\x85\x85...");
+    m_fillDetailLabel->setText(QString("\xe5\x85\xb1 %1 \xe4\xb8\xaa\xe6\xa8\xa1\xe6\x9d\xbf\xef\xbc\x8cAI \xe6\xad\xa3\xe5\x9c\xa8\xe5\xa4\x84\xe7\x90\x86...").arg(m_templateFilePaths.size()));
 
     int *completedCount = new int(0);
     int totalCount = m_templateFilePaths.size();
@@ -714,90 +788,122 @@ void AutoFillPage::startFilling() {
         QFileInfo fi(filePath);
         QString fileName = fi.fileName();
 
-        // Upload template
+        // Step 1: Upload template
         ApiClient::instance().uploadTemplateFile(filePath, nullptr,
             [this, fileName, completedCount, totalCount, userReq](bool ok, const QJsonObject &data, const QString &err) {
                 if (!ok) {
-                    TemplateResult r;
-                    r.templateId = 0;
-                    r.fileName = fileName;
-                    r.status = "上传失败: " + err;
+                    TemplateResult r; r.templateId = 0; r.fileName = fileName; r.status = "\xe4\xb8\x8a\xe4\xbc\xa0\xe5\xa4\xb1\xe8\xb4\xa5: " + err;
                     m_results.append(r);
                     (*completedCount)++;
-                    if (*completedCount >= totalCount) { delete completedCount; goToStep(2); showResults(); }
+                    if (*completedCount >= totalCount) { delete completedCount; showResults(); }
                     return;
                 }
                 int templateId = data["data"].toObject()["id"].toInt();
-                m_fillDetailLabel->setText("正在填充: " + fileName);
+                m_fillDetailLabel->setText("\xe6\xad\xa3\xe5\x9c\xa8\xe8\xa7\xa3\xe6\x9e\x90\xe6\xa8\xa1\xe6\x9d\xbf: " + fileName);
 
-                // Fill template
-                ApiClient::instance().fillTemplate(templateId, m_selectedSourceIds, userReq,
-                    [this, templateId, fileName, completedCount, totalCount](bool ok2, const QJsonObject &, const QString &err2) {
-                        TemplateResult r;
-                        r.templateId = templateId;
-                        r.fileName = fileName;
-                        r.status = ok2 ? "success" : ("填充失败: " + err2);
-                        m_results.append(r);
-                        (*completedCount)++;
-                        if (*completedCount >= totalCount) { delete completedCount; goToStep(2); showResults(); }
+                // Step 2: Parse template slots
+                ApiClient::instance().parseTemplateSlots(templateId,
+                    [this, templateId, fileName, completedCount, totalCount, userReq](bool ok2, const QJsonObject &, const QString &err2) {
+                        if (!ok2) {
+                            TemplateResult r; r.templateId = templateId; r.fileName = fileName;
+                            r.status = "\xe8\xa7\xa3\xe6\x9e\x90\xe5\xa4\xb1\xe8\xb4\xa5: " + err2;
+                            m_results.append(r);
+                            (*completedCount)++;
+                            if (*completedCount >= totalCount) { delete completedCount; showResults(); }
+                            return;
+                        }
+                        m_fillDetailLabel->setText("\xe6\xad\xa3\xe5\x9c\xa8\xe6\x99\xba\xe8\x83\xbd\xe5\xa1\xab\xe5\x85\x85: " + fileName);
+
+                        // Step 3: Fill template
+                        ApiClient::instance().fillTemplate(templateId, m_selectedSourceIds, userReq,
+                            [this, templateId, fileName, completedCount, totalCount](bool ok3, const QJsonObject &, const QString &err3) {
+                                if (!ok3) {
+                                    TemplateResult r; r.templateId = templateId; r.fileName = fileName;
+                                    r.status = "\xe5\xa1\xab\xe5\x85\x85\xe5\xa4\xb1\xe8\xb4\xa5: " + err3;
+                                    m_results.append(r);
+                                    (*completedCount)++;
+                                    if (*completedCount >= totalCount) { delete completedCount; showResults(); }
+                                    return;
+                                }
+                                m_fillDetailLabel->setText("\xe6\xad\xa3\xe5\x9c\xa8\xe4\xb8\x8b\xe8\xbd\xbd\xe7\xbb\x93\xe6\x9e\x9c: " + fileName);
+
+                                // Step 4: Download result
+                                ApiClient::instance().downloadTemplateResult(templateId,
+                                    [this, templateId, fileName, completedCount, totalCount](bool ok4, const QByteArray &blob, const QString &fn, const QString &) {
+                                        TemplateResult r;
+                                        r.templateId = templateId;
+                                        r.fileName = fileName;
+                                        r.status = "success";
+                                        m_results.append(r);
+                                        if (ok4 && !blob.isEmpty()) {
+                                            m_downloadedBlobs[templateId] = qMakePair(blob, fn.isEmpty() ? fileName : fn);
+                                        }
+                                        (*completedCount)++;
+                                        if (*completedCount >= totalCount) { delete completedCount; showResults(); }
+                                    });
+                            });
                     });
             });
     }
 }
 
 void AutoFillPage::showResults() {
+    qint64 elapsedMs = m_fillTimer.elapsed();
+    goToStep(2);
+
     m_resultList->clear();
     int successCount = 0;
     for (const auto &r : m_results) { if (r.status == "success") successCount++; }
     int srcCount = m_selectedSourceIds.isEmpty() ? m_allDocs.size() : m_selectedSourceIds.size();
-    m_resultSummaryLabel->setText(QString("\xe6\x88\x90\xe5\x8a\x9f\xe5\xa1\xab\xe5\x85\x85 %1/%2 \xe4\xb8\xaa\xe6\xa8\xa1\xe6\x9d\xbf\xef\xbc\x8c\xe6\x95\xb0\xe6\x8d\xae\xe6\xba\x90 %3 \xe4\xb8\xaa\xe6\x96\x87\xe6\xa1\xa3")
-        .arg(successCount).arg(m_results.size()).arg(srcCount));
+    double secs = elapsedMs / 1000.0;
+    m_resultSummaryLabel->setText(QString("\xe6\x88\x90\xe5\x8a\x9f\xe5\xa1\xab\xe5\x85\x85 %1/%2 \xe4\xb8\xaa\xe6\xa8\xa1\xe6\x9d\xbf\xef\xbc\x8c\xe6\x95\xb0\xe6\x8d\xae\xe6\xba\x90 %3 \xe4\xb8\xaa\xe6\x96\x87\xe6\xa1\xa3\xef\xbc\x8c\xe8\x80\x97\xe6\x97\xb6 %4 \xe7\xa7\x92")
+        .arg(successCount).arg(m_results.size()).arg(srcCount).arg(secs, 0, 'f', 1));
+
     for (int i = 0; i < m_results.size(); i++) {
         const TemplateResult &r = m_results[i];
-
         QWidget *itemWidget = new QWidget;
         QHBoxLayout *itemLayout = new QHBoxLayout(itemWidget);
-        itemLayout->setContentsMargins(16, 12, 16, 12);
-        itemLayout->setSpacing(12);
+        itemLayout->setContentsMargins(12, 6, 12, 6);
+        itemLayout->setSpacing(10);
 
         QLabel *icon = new QLabel;
-        icon->setFixedSize(20, 20);
+        icon->setFixedSize(18, 18);
         if (r.status == "success")
-            icon->setPixmap(IconHelper::document(16, QColor("#10B981")));
+            icon->setPixmap(IconHelper::document(14, QColor("#10B981")));
         else
-            icon->setPixmap(IconHelper::closeX(16, QColor("#EF4444")));
-        icon->setAlignment(Qt::AlignCenter);
+            icon->setPixmap(IconHelper::closeX(14, QColor("#EF4444")));
         QLabel *name = new QLabel(r.fileName);
-        name->setStyleSheet("font-size: 14px; font-weight: 500; color: #111827;");
-        QLabel *status = new QLabel(r.status == "success" ? "填充成功" : r.status);
+        name->setStyleSheet("font-size: 13px; font-weight: 500; color: #111827;");
+        QLabel *status = new QLabel(r.status == "success" ? "\xe5\xa1\xab\xe5\x85\x85\xe6\x88\x90\xe5\x8a\x9f" : r.status);
         status->setStyleSheet(r.status == "success" ?
-            "font-size: 12px; color: #10B981;" : "font-size: 12px; color: #EF4444;");
+            "font-size: 11px; color: #10B981;" : "font-size: 11px; color: #EF4444;");
 
         itemLayout->addWidget(icon);
-        QVBoxLayout *infoLayout = new QVBoxLayout;
-        infoLayout->addWidget(name);
-        infoLayout->addWidget(status);
-        itemLayout->addLayout(infoLayout, 1);
+        itemLayout->addWidget(name);
+        itemLayout->addWidget(status);
+        itemLayout->addStretch();
 
         if (r.status == "success" && r.templateId > 0) {
             QPushButton *dlBtn = new QPushButton("\xe4\xb8\x8b\xe8\xbd\xbd");
-            dlBtn->setMinimumHeight(32);
+            dlBtn->setFixedHeight(28);
             dlBtn->setCursor(Qt::PointingHandCursor);
-            dlBtn->setStyleSheet("QPushButton { background: #EEF2FF; color: #4F46E5; border: none; border-radius: 6px; padding: 0 14px; font-size: 12px; }"
-                                 "QPushButton:hover { background: #BAE7FF; }");
+            dlBtn->setStyleSheet("QPushButton { background: #EEF2FF; color: #4F46E5; border: none; border-radius: 4px; padding: 0 12px; font-size: 11px; }"
+                                 "QPushButton:hover { background: #C7D2FE; }");
             int tid = r.templateId;
             connect(dlBtn, &QPushButton::clicked, [this, tid]() { downloadResult(tid); });
 
             QPushButton *emailBtn = new QPushButton("\xe9\x82\xae\xe4\xbb\xb6");
-            emailBtn->setMinimumHeight(32);
-            emailBtn->setStyleSheet("QPushButton { background: #FEF3C7; color: #F59E0B; border: none; border-radius: 6px; padding: 0 14px; font-size: 12px; }"
-                                    "QPushButton:hover { background: #FFFB8F; }");
+            emailBtn->setFixedHeight(28);
+            emailBtn->setCursor(Qt::PointingHandCursor);
+            emailBtn->setStyleSheet("QPushButton { background: #FEF3C7; color: #D97706; border: none; border-radius: 4px; padding: 0 12px; font-size: 11px; }"
+                                    "QPushButton:hover { background: #FDE68A; }");
             connect(emailBtn, &QPushButton::clicked, [this, tid]() { sendResultEmail(tid); });
 
             QPushButton *auditBtn = new QPushButton("\xe8\xaf\xa6\xe6\x83\x85");
-            auditBtn->setMinimumHeight(32);
-            auditBtn->setStyleSheet("QPushButton { background: #D1FAE5; color: #10B981; border: none; border-radius: 6px; padding: 0 14px; font-size: 12px; }"
-                                    "QPushButton:hover { background: #D9F7BE; }");
+            auditBtn->setFixedHeight(28);
+            auditBtn->setCursor(Qt::PointingHandCursor);
+            auditBtn->setStyleSheet("QPushButton { background: #D1FAE5; color: #059669; border: none; border-radius: 4px; padding: 0 12px; font-size: 11px; }"
+                                    "QPushButton:hover { background: #A7F3D0; }");
             connect(auditBtn, &QPushButton::clicked, [this, tid]() { viewAudit(tid); });
 
             itemLayout->addWidget(dlBtn);
@@ -806,10 +912,13 @@ void AutoFillPage::showResults() {
         }
 
         QListWidgetItem *listItem = new QListWidgetItem;
-        listItem->setSizeHint(itemWidget->sizeHint() + QSize(0, 12));
+        listItem->setSizeHint(QSize(0, 36));
         m_resultList->addItem(listItem);
         m_resultList->setItemWidget(listItem, itemWidget);
     }
+
+    // Load decisions for tabs
+    loadDecisions();
 }
 
 void AutoFillPage::downloadResult(int templateId) {
@@ -855,24 +964,321 @@ void AutoFillPage::sendResultEmail(int templateId) {
 
 void AutoFillPage::viewAudit(int templateId) {
     QDialog dlg(this);
-    dlg.setWindowTitle("填充详情");
-    dlg.resize(600, 400);
+    dlg.setWindowTitle("\xe5\xa1\xab\xe5\x85\x85\xe8\xaf\xa6\xe6\x83\x85");
+    dlg.resize(800, 500);
     dlg.setStyleSheet("QDialog { background: white; }");
     QVBoxLayout *layout = new QVBoxLayout(&dlg);
+    layout->setContentsMargins(16, 16, 16, 16);
 
-    QTextEdit *viewer = new QTextEdit;
-    viewer->setReadOnly(true);
-    viewer->setStyleSheet("QTextEdit { border: none; padding: 16px; font-size: 13px; }");
-    viewer->setPlainText("正在加载填充详情...");
-    layout->addWidget(viewer);
+    QLabel *loadingLbl = new QLabel("\xe6\xad\xa3\xe5\x9c\xa8\xe5\x8a\xa0\xe8\xbd\xbd\xe5\xa1\xab\xe5\x85\x85\xe8\xaf\xa6\xe6\x83\x85...");
+    loadingLbl->setAlignment(Qt::AlignCenter);
+    loadingLbl->setStyleSheet("font-size: 14px; color: #6B7280;");
+    layout->addWidget(loadingLbl);
 
-    ApiClient::instance().getTemplateAudit(templateId, [viewer](bool ok, const QJsonObject &data, const QString &err) {
-        if (!ok) { viewer->setPlainText("加载失败: " + err); return; }
-        QJsonDocument doc(data["data"].toObject());
-        viewer->setPlainText(doc.toJson(QJsonDocument::Indented));
+    QTableWidget *table = new QTableWidget;
+    table->setColumnCount(5);
+    table->setHorizontalHeaderLabels({"\xe5\xad\x97\xe6\xae\xb5\xe5\x90\x8d\xe7\xa7\xb0", "\xe5\xa1\xab\xe5\x85\x85\xe5\x80\xbc", "\xe7\xbd\xae\xe4\xbf\xa1\xe5\xba\xa6", "\xe5\x86\xb3\xe7\xad\x96\xe6\x96\xb9\xe5\xbc\x8f", "\xe5\x86\xb3\xe7\xad\x96\xe5\x8e\x9f\xe5\x9b\xa0"});
+    table->horizontalHeader()->setStretchLastSection(true);
+    table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
+    table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed);
+    table->setColumnWidth(2, 140);
+    table->setColumnWidth(3, 100);
+    table->verticalHeader()->setVisible(false);
+    table->setShowGrid(false);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setAlternatingRowColors(true);
+    table->setStyleSheet(
+        "QTableWidget { border: none; font-size: 12px; }"
+        "QTableWidget::item { padding: 6px 8px; border-bottom: 1px solid #F3F4F6; }"
+        "QHeaderView::section { background: #F9FAFB; border: none; border-bottom: 2px solid #E5E7EB; padding: 8px; font-weight: 600; color: #374151; }");
+    table->setVisible(false);
+    layout->addWidget(table);
+
+    ApiClient::instance().getTemplateDecisions(templateId, [this, loadingLbl, table](bool ok, const QJsonObject &data, const QString &err) {
+        loadingLbl->setVisible(false);
+        if (!ok) {
+            loadingLbl->setText("\xe5\x8a\xa0\xe8\xbd\xbd\xe5\xa4\xb1\xe8\xb4\xa5: " + err);
+            loadingLbl->setVisible(true);
+            return;
+        }
+        QJsonArray arr = data["data"].toArray();
+        table->setRowCount(arr.size());
+        table->setVisible(true);
+        for (int i = 0; i < arr.size(); i++) {
+            QJsonObject obj = arr[i].toObject();
+            table->setItem(i, 0, new QTableWidgetItem(obj["slotLabel"].toString()));
+            QString val = obj["finalValue"].toString();
+            table->setItem(i, 1, new QTableWidgetItem(val.isEmpty() ? "\xe2\x80\x94" : val));
+            double conf = obj["finalConfidence"].toDouble();
+            QProgressBar *confBar = new QProgressBar;
+            confBar->setRange(0, 100);
+            confBar->setValue(qRound(conf * 100));
+            confBar->setTextVisible(true);
+            confBar->setFormat(QString::number(conf * 100, 'f', 1) + "%");
+            confBar->setFixedHeight(20);
+            QString color = conf >= 0.85 ? "#10B981" : (conf >= 0.70 ? "#3B82F6" : (conf >= 0.50 ? "#F59E0B" : "#EF4444"));
+            confBar->setStyleSheet(QString(
+                "QProgressBar { background: #F3F4F6; border: none; border-radius: 4px; font-size: 10px; }"
+                "QProgressBar::chunk { background: %1; border-radius: 4px; }").arg(color));
+            table->setCellWidget(i, 2, confBar);
+            QString mode = obj["decisionMode"].toString();
+            QLabel *modeLbl = new QLabel(decisionModeLabel(mode));
+            modeLbl->setAlignment(Qt::AlignCenter);
+            QString mc = decisionModeColor(mode);
+            modeLbl->setStyleSheet(QString("font-size: 10px; font-weight: 500; color: %1; background: #F3F4F6; border-radius: 4px; padding: 2px 8px;")
+                .arg(mc));
+            table->setCellWidget(i, 3, modeLbl);
+            table->setItem(i, 4, new QTableWidgetItem(obj["reason"].toString()));
+        }
     });
 
     dlg.exec();
+}
+
+void AutoFillPage::loadDecisions() {
+    m_decisions.clear();
+    int *remaining = new int(0);
+    QList<int> tids;
+    for (const auto &r : m_results) {
+        if (r.status == "success" && r.templateId > 0) { tids.append(r.templateId); (*remaining)++; }
+    }
+    if (tids.isEmpty()) { buildDetailTab(); buildAnalysisTab(); return; }
+
+    for (int tid : tids) {
+        ApiClient::instance().getTemplateDecisions(tid,
+            [this, remaining](bool ok, const QJsonObject &data, const QString &) {
+                if (ok) {
+                    QJsonArray arr = data["data"].toArray();
+                    for (const auto &v : arr) {
+                        QJsonObject obj = v.toObject();
+                        FillDecision d;
+                        d.slotLabel = obj["slotLabel"].toString();
+                        d.finalValue = obj["finalValue"].toString();
+                        d.finalConfidence = obj["finalConfidence"].toDouble();
+                        d.decisionMode = obj["decisionMode"].toString();
+                        d.reason = obj["reason"].toString();
+                        m_decisions.append(d);
+                    }
+                }
+                (*remaining)--;
+                if (*remaining <= 0) {
+                    delete remaining;
+                    buildDetailTab();
+                    buildAnalysisTab();
+                }
+            });
+    }
+}
+
+void AutoFillPage::buildDetailTab() {
+    m_detailTable->setRowCount(0);
+    m_detailTable->setRowCount(m_decisions.size());
+
+    for (int i = 0; i < m_decisions.size(); i++) {
+        const FillDecision &d = m_decisions[i];
+        m_detailTable->setItem(i, 0, new QTableWidgetItem(d.slotLabel));
+        QTableWidgetItem *valItem = new QTableWidgetItem(d.finalValue.isEmpty() ? "\xe2\x80\x94" : d.finalValue);
+        m_detailTable->setItem(i, 1, valItem);
+
+        // Confidence progress bar
+        QProgressBar *confBar = new QProgressBar;
+        confBar->setRange(0, 100);
+        confBar->setValue(qRound(d.finalConfidence * 100));
+        confBar->setTextVisible(true);
+        confBar->setFormat(QString::number(d.finalConfidence * 100, 'f', 1) + "%");
+        confBar->setFixedHeight(20);
+        QString color = d.finalConfidence >= 0.85 ? "#10B981" : (d.finalConfidence >= 0.70 ? "#3B82F6" : (d.finalConfidence >= 0.50 ? "#F59E0B" : "#EF4444"));
+        confBar->setStyleSheet(QString(
+            "QProgressBar { background: #F3F4F6; border: none; border-radius: 4px; font-size: 10px; }"
+            "QProgressBar::chunk { background: %1; border-radius: 4px; }").arg(color));
+        m_detailTable->setCellWidget(i, 2, confBar);
+
+        // Decision mode label
+        QLabel *modeLbl = new QLabel(decisionModeLabel(d.decisionMode));
+        modeLbl->setAlignment(Qt::AlignCenter);
+        QString mc = decisionModeColor(d.decisionMode);
+        modeLbl->setStyleSheet(QString("font-size: 10px; font-weight: 500; color: %1; background: #F3F4F6; border-radius: 4px; padding: 2px 8px;")
+            .arg(mc));
+        m_detailTable->setCellWidget(i, 3, modeLbl);
+
+        m_detailTable->setItem(i, 4, new QTableWidgetItem(d.reason));
+    }
+}
+
+void AutoFillPage::buildAnalysisTab() {
+    // Clear previous analysis content
+    QLayout *oldLayout = m_analysisWidget->layout();
+    if (oldLayout) {
+        QLayoutItem *child;
+        while ((child = oldLayout->takeAt(0)) != nullptr) {
+            if (child->widget()) delete child->widget();
+            delete child;
+        }
+        delete oldLayout;
+    }
+
+    QVBoxLayout *layout = new QVBoxLayout(m_analysisWidget);
+    layout->setContentsMargins(24, 20, 24, 20);
+    layout->setSpacing(20);
+
+    int total = m_decisions.size();
+    if (total == 0) {
+        QLabel *emptyLbl = new QLabel("\xe6\x9a\x82\xe6\x97\xa0\xe5\xa1\xab\xe5\x85\x85\xe6\x95\xb0\xe6\x8d\xae");
+        emptyLbl->setAlignment(Qt::AlignCenter);
+        emptyLbl->setStyleSheet("font-size: 14px; color: #9CA3AF;");
+        layout->addWidget(emptyLbl);
+        layout->addStretch();
+        return;
+    }
+
+    // Calculate statistics
+    int filledCount = 0;
+    double totalConf = 0;
+    int highConf = 0, midConf = 0, lowConf = 0, noFill = 0;
+    QMap<QString, int> modeCounts;
+    for (const FillDecision &d : m_decisions) {
+        if (!d.finalValue.isEmpty() && d.finalValue != "\xe2\x80\x94") {
+            filledCount++;
+            totalConf += d.finalConfidence;
+            if (d.finalConfidence >= 0.85) highConf++;
+            else if (d.finalConfidence >= 0.70) midConf++;
+            else lowConf++;
+        } else {
+            noFill++;
+        }
+        modeCounts[d.decisionMode] = modeCounts.value(d.decisionMode, 0) + 1;
+    }
+    double avgConf = filledCount > 0 ? totalConf / filledCount : 0;
+    double fillRate = total > 0 ? (double)filledCount / total : 0;
+
+    // Summary stat cards
+    QHBoxLayout *statsRow = new QHBoxLayout;
+    statsRow->setSpacing(16);
+    auto makeStatCard = [](const QString &value, const QString &label, const QString &color, const QString &bgColor) -> QWidget* {
+        QWidget *card = new QWidget;
+        card->setMinimumHeight(80);
+        card->setStyleSheet(QString("background: %1; border-radius: 10px;").arg(bgColor));
+        QVBoxLayout *cl = new QVBoxLayout(card);
+        cl->setAlignment(Qt::AlignCenter);
+        cl->setSpacing(4);
+        QLabel *vl = new QLabel(value);
+        vl->setAlignment(Qt::AlignCenter);
+        vl->setStyleSheet(QString("font-size: 24px; font-weight: 700; color: %1;").arg(color));
+        QLabel *ll = new QLabel(label);
+        ll->setAlignment(Qt::AlignCenter);
+        ll->setStyleSheet("font-size: 12px; color: #6B7280;");
+        cl->addWidget(vl);
+        cl->addWidget(ll);
+        return card;
+    };
+    statsRow->addWidget(makeStatCard(QString::number(total), "\xe6\x80\xbb\xe5\xad\x97\xe6\xae\xb5\xe6\x95\xb0", "#4F46E5", "#EEF2FF"));
+    statsRow->addWidget(makeStatCard(QString::number(avgConf * 100, 'f', 1) + "%", "\xe5\xb9\xb3\xe5\x9d\x87\xe7\xbd\xae\xe4\xbf\xa1\xe5\xba\xa6", "#10B981", "#D1FAE5"));
+    statsRow->addWidget(makeStatCard(QString::number(fillRate * 100, 'f', 1) + "%", "\xe5\xb7\xb2\xe5\xa1\xab\xe5\x85\x85\xe7\x8e\x87", "#3B82F6", "#DBEAFE"));
+    layout->addLayout(statsRow);
+
+    // Confidence distribution section
+    QLabel *confTitle = new QLabel("\xe7\xbd\xae\xe4\xbf\xa1\xe5\xba\xa6\xe5\x88\x86\xe5\xb8\x83");
+    confTitle->setStyleSheet("font-size: 14px; font-weight: 600; color: #111827;");
+    layout->addWidget(confTitle);
+
+    struct ConfLevel { QString name; int count; QString color; };
+    QList<ConfLevel> levels = {
+        {"\xe9\xab\x98\xe7\xbd\xae\xe4\xbf\xa1 (\xe2\x89\xa585%)", highConf, "#10B981"},
+        {"\xe4\xb8\xad\xe7\xbd\xae\xe4\xbf\xa1 (70-85%)", midConf, "#3B82F6"},
+        {"\xe4\xbd\x8e\xe7\xbd\xae\xe4\xbf\xa1 (<70%)", lowConf, "#F59E0B"},
+        {"\xe6\x9c\xaa\xe5\xa1\xab\xe5\x86\x99", noFill, "#9CA3AF"}
+    };
+    for (const ConfLevel &cl : levels) {
+        QHBoxLayout *barRow = new QHBoxLayout;
+        barRow->setSpacing(12);
+        QLabel *nameLbl = new QLabel(cl.name);
+        nameLbl->setFixedWidth(120);
+        nameLbl->setStyleSheet("font-size: 12px; color: #374151;");
+        QProgressBar *bar = new QProgressBar;
+        bar->setRange(0, total);
+        bar->setValue(cl.count);
+        bar->setFixedHeight(16);
+        bar->setTextVisible(false);
+        bar->setStyleSheet(QString(
+            "QProgressBar { background: #F3F4F6; border: none; border-radius: 4px; }"
+            "QProgressBar::chunk { background: %1; border-radius: 4px; }").arg(cl.color));
+        double pct = total > 0 ? (double)cl.count / total * 100.0 : 0;
+        QLabel *countLbl = new QLabel(QString("%1 (%2%)").arg(cl.count).arg(pct, 0, 'f', 1));
+        countLbl->setFixedWidth(80);
+        countLbl->setStyleSheet("font-size: 11px; color: #6B7280;");
+        barRow->addWidget(nameLbl);
+        barRow->addWidget(bar, 1);
+        barRow->addWidget(countLbl);
+        layout->addLayout(barRow);
+    }
+
+    // Decision mode distribution section
+    layout->addSpacing(8);
+    QLabel *modeTitle = new QLabel("\xe5\x86\xb3\xe7\xad\x96\xe6\x96\xb9\xe5\xbc\x8f\xe5\x88\x86\xe5\xb8\x83");
+    modeTitle->setStyleSheet("font-size: 14px; font-weight: 600; color: #111827;");
+    layout->addWidget(modeTitle);
+
+    // Sort modes by count descending
+    QList<QPair<QString, int>> sortedModes;
+    for (auto it = modeCounts.constBegin(); it != modeCounts.constEnd(); ++it)
+        sortedModes.append(qMakePair(it.key(), it.value()));
+    std::sort(sortedModes.begin(), sortedModes.end(), [](const QPair<QString,int> &a, const QPair<QString,int> &b) { return a.second > b.second; });
+
+    for (const auto &pair : sortedModes) {
+        QHBoxLayout *modeRow = new QHBoxLayout;
+        modeRow->setSpacing(10);
+        QLabel *dot = new QLabel("\xe2\x97\x8f");
+        dot->setFixedWidth(16);
+        dot->setStyleSheet(QString("font-size: 10px; color: %1;").arg(decisionModeColor(pair.first)));
+        QLabel *mLabel = new QLabel(decisionModeLabel(pair.first));
+        mLabel->setFixedWidth(100);
+        mLabel->setStyleSheet("font-size: 12px; color: #374151;");
+        QProgressBar *mBar = new QProgressBar;
+        mBar->setRange(0, total);
+        mBar->setValue(pair.second);
+        mBar->setFixedHeight(14);
+        mBar->setTextVisible(false);
+        mBar->setStyleSheet(QString(
+            "QProgressBar { background: #F3F4F6; border: none; border-radius: 3px; }"
+            "QProgressBar::chunk { background: %1; border-radius: 3px; }").arg(decisionModeColor(pair.first)));
+        double pct = total > 0 ? (double)pair.second / total * 100.0 : 0;
+        QLabel *cntLbl = new QLabel(QString("%1 (%2%)").arg(pair.second).arg(pct, 0, 'f', 1));
+        cntLbl->setFixedWidth(80);
+        cntLbl->setStyleSheet("font-size: 11px; color: #6B7280;");
+        modeRow->addWidget(dot);
+        modeRow->addWidget(mLabel);
+        modeRow->addWidget(mBar, 1);
+        modeRow->addWidget(cntLbl);
+        layout->addLayout(modeRow);
+    }
+
+    layout->addStretch();
+}
+
+QString AutoFillPage::decisionModeLabel(const QString &mode) {
+    if (mode == "rule_only") return "\xe8\xa7\x84\xe5\x88\x99\xe5\x8c\xb9\xe9\x85\x8d";
+    if (mode == "rule_plus_llm") return "\xe8\xa7\x84\xe5\x88\x99+AI";
+    if (mode == "statistical_aggregation") return "\xe7\xbb\x9f\xe8\xae\xa1\xe8\x81\x9a\xe5\x90\x88";
+    if (mode == "direct_table_copy") return "\xe8\xa1\xa8\xe6\xa0\xbc\xe5\xa4\x8d\xe5\x88\xb6";
+    if (mode == "greedy_fallback") return "\xe6\x99\xba\xe8\x83\xbd\xe5\x8c\xb9\xe9\x85\x8d";
+    if (mode == "llm_fallback") return "AI\xe6\x8f\x90\xe5\x8f\x96";
+    if (mode == "fallback_blank") return "\xe5\xbe\x85\xe8\xa1\xa5\xe5\x85\x85";
+    if (mode == "forced_requirement") return "\xe9\x9c\x80\xe6\xb1\x82\xe5\x8c\xb9\xe9\x85\x8d";
+    return mode;
+}
+
+QString AutoFillPage::decisionModeColor(const QString &mode) {
+    if (mode == "rule_only") return "#3B82F6";
+    if (mode == "rule_plus_llm") return "#8B5CF6";
+    if (mode == "statistical_aggregation") return "#10B981";
+    if (mode == "direct_table_copy") return "#06B6D4";
+    if (mode == "greedy_fallback") return "#F97316";
+    if (mode == "llm_fallback") return "#F59E0B";
+    if (mode == "fallback_blank") return "#9CA3AF";
+    if (mode == "forced_requirement") return "#EC4899";
+    return "#6B7280";
 }
 
 bool AutoFillPage::eventFilter(QObject *obj, QEvent *event) {

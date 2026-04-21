@@ -66,6 +66,7 @@ public:
     void addConversationMessage(int id, const QJsonObject &data, Callback cb);
 
     QString baseUrl() const { return m_baseUrl; }
+    void setBaseUrl(const QString &url) { m_baseUrl = url; }
 
 signals:
     void tokenExpired();

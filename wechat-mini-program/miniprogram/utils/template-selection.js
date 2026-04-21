@@ -1,6 +1,9 @@
 const {
   normalizeDocRecord,
 } = require('./document-role')
+const {
+  normalizeFileName,
+} = require('./document-name')
 
 function normalizeText(value) {
   return String(value || '').trim()
@@ -15,7 +18,7 @@ function normalizeId(value) {
 }
 
 function getFileTypeFromName(fileName) {
-  const normalizedName = normalizeText(fileName)
+  const normalizedName = normalizeFileName(fileName)
   const match = normalizedName.match(/\.([^.]+)$/)
   return match ? String(match[1] || '').toLowerCase() : ''
 }
@@ -37,7 +40,7 @@ function buildTemplateSelection(template) {
   }) || {}
 
   const id = normalizeId(normalizedDoc.id || template.templateId)
-  const fileName = normalizeText(
+  const fileName = normalizeFileName(
     normalizedDoc.fileName
     || template.fileName
     || template.title

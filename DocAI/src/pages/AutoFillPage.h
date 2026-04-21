@@ -13,6 +13,9 @@
 #include <QEvent>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QTabWidget>
+#include <QTableWidget>
+#include <QElapsedTimer>
 #include "../models/DataModels.h"
 
 class AutoFillPage : public QWidget {
@@ -42,6 +45,11 @@ private:
     QWidget* createStep3();
     void showResults();
     void rebuildTemplateList();
+    void loadDecisions();
+    void buildDetailTab();
+    void buildAnalysisTab();
+    QString decisionModeLabel(const QString &mode);
+    QString decisionModeColor(const QString &mode);
 
     int m_currentStep = 0;
     QStackedWidget *m_stepStack;
@@ -66,10 +74,12 @@ private:
     QLabel *m_fillDetailLabel;
 
     // Step 3
-    QListWidget *m_resultList;
-    QWidget *m_resultArea;
     QWidget *m_resultSummary;
     QLabel *m_resultSummaryLabel;
+    QListWidget *m_resultList;
+    QTabWidget *m_resultTabs;
+    QTableWidget *m_detailTable;
+    QWidget *m_analysisWidget;
 
     // Data
     QList<SourceDocument> m_allDocs;
@@ -81,6 +91,17 @@ private:
         QString status;
     };
     QList<TemplateResult> m_results;
+
+    struct FillDecision {
+        QString slotLabel;
+        QString finalValue;
+        double finalConfidence;
+        QString decisionMode;
+        QString reason;
+    };
+    QList<FillDecision> m_decisions;
+    QMap<int, QPair<QByteArray, QString>> m_downloadedBlobs;
+    QElapsedTimer m_fillTimer;
 };
 
 #endif // AUTOFILLPAGE_H

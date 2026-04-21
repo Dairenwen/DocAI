@@ -299,4 +299,96 @@
       <button class="solid-btn inline-btn source-picker-footer-btn" bindtap="handleConfirmSourceDocSelection">完成</button>
     </view>
   </view>
+
+  <view
+    wx:if="{{showTemplatePicker}}"
+    class="template-sheet-mask {{templatePickerMaskVisible ? 'template-sheet-mask--visible' : ''}}"
+    catchtap="handleCloseTemplatePicker"
+    catchtouchmove="noop"
+  ></view>
+
+  <view
+    wx:if="{{showTemplatePicker}}"
+    class="template-picker-panel {{templatePickerPanelVisible ? 'template-picker-panel--visible' : ''}}"
+    catchtap="noop"
+  >
+    <view class="source-picker-handle"></view>
+    <view class="source-picker-header">
+      <view class="source-picker-header-copy">
+        <view class="source-picker-title">从模板库选择模板</view>
+        <view class="source-picker-subtitle">已上传的 DOCX / XLSX 模板会出现在这里，也可以直接从微信文件里重新选择。</view>
+      </view>
+      <view class="source-picker-count">{{pendingTemplateId ? '已选 1 份' : '未选模板'}}</view>
+    </view>
+
+    <scroll-view class="source-picker-scroll" scroll-y="true" enable-flex="true">
+      <view wx:if="{{templatePickerLoading}}" class="source-picker-empty">
+        <view class="source-picker-empty-title">正在加载模板库…</view>
+      </view>
+
+      <view wx:elif="{{availableTemplateDocs.length > 0}}" class="source-picker-list">
+        <view
+          class="source-picker-item"
+          wx:for="{{availableTemplateDocs}}"
+          wx:key="id"
+          data-id="{{item.id}}"
+          bindtap="handleSelectTemplateDoc"
+        >
+          <view class="source-picker-file source-picker-file--{{item.fileTheme}}">
+            <view class="source-picker-file-ext">{{item.typeText}}</view>
+          </view>
+
+          <view class="source-picker-body">
+            <view class="source-picker-name">{{item.fileName}}</view>
+            <view class="source-picker-meta source-picker-meta--stacked">
+              <text>{{item.authorText || '系统用户'}}</text>
+              <text>{{item.fileSizeText || '--'}}</text>
+              <text wx:if="{{item.updatedAtText && item.updatedAtText !== '--'}}">{{item.updatedAtText}}</text>
+              <text>{{item.stageText}}</text>
+            </view>
+            <view class="template-selected-desc">{{item.sourceText}}</view>
+          </view>
+
+          <view class="template-picker-radio {{item.selected ? 'template-picker-radio--selected' : ''}}">
+            <view class="template-picker-radio-dot"></view>
+          </view>
+        </view>
+      </view>
+
+      <view wx:else class="source-picker-empty">
+        <view class="source-picker-empty-title">当前没有可复用模板</view>
+        <view class="source-picker-empty-desc">你可以先用下方按钮从微信文件选择模板，之后也会出现在模板库里。</view>
+      </view>
+    </scroll-view>
+
+    <view class="source-picker-footer">
+      <button class="outline-btn inline-btn source-picker-footer-btn" bindtap="handleChooseTemplateFromWechat">微信文件</button>
+      <button class="ghost-btn inline-btn source-picker-footer-btn" bindtap="handleCloseTemplatePicker">取消</button>
+      <button class="solid-btn inline-btn source-picker-footer-btn" bindtap="handleConfirmTemplateSelection">完成</button>
+    </view>
+  </view>
+
+  <view wx:if="{{privacyDialog.visible}}" class="privacy-mask">
+    <view class="privacy-dialog">
+      <view class="privacy-dialog-title">隐私授权提示</view>
+      <view class="privacy-dialog-desc">
+        为了{{privacyDialog.sceneText}}，请先阅读并同意《用户协议》《隐私政策》。
+      </view>
+      <view class="privacy-dialog-links">
+        <button class="privacy-dialog-link" bindtap="openUserAgreement">查看用户协议</button>
+        <button class="privacy-dialog-link" bindtap="openPrivacyPolicy">查看隐私政策</button>
+      </view>
+      <view class="privacy-dialog-actions">
+        <button class="ghost-btn inline-btn" bindtap="handlePrivacyDisagree">暂不同意</button>
+        <button
+          id="docai-privacy-agree-btn"
+          class="solid-btn inline-btn"
+          open-type="agreePrivacyAuthorization"
+          bindagreeprivacyauthorization="handlePrivacyAgree"
+        >
+          同意并继续
+        </button>
+      </view>
+    </view>
+  </view>
 </view>

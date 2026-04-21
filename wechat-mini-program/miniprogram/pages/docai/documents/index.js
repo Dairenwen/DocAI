@@ -1,4 +1,4 @@
-const api = require('../../../api/docai')
+﻿const api = require('../../../api/docai')
 const { ensureLogin } = require('../../../utils/auth')
 const {
   forgetDocumentName,
@@ -299,6 +299,14 @@ Page({
     const app = getApp()
     if (app && typeof app.ensurePrivacyAuthorized === 'function') {
       return app.ensurePrivacyAuthorized(scene, action)
+    }
+    return typeof action === 'function' ? action() : Promise.resolve()
+  },
+
+  runNativePrivacyApi(scene, action) {
+    const app = getApp()
+    if (app && typeof app.runNativePrivacyApi === 'function') {
+      return app.runNativePrivacyApi(scene, action)
     }
     return typeof action === 'function' ? action() : Promise.resolve()
   },
@@ -754,79 +762,16 @@ Page({
     })
   },
 
-  async chooseAndUploadLegacy() {
-    try {
-      await this.ensurePrivacyAuthorized('document-upload', async () => {
-        const pick = await chooseMessageFileAsync({
-          count: 9,
-          type: 'file',
-          extension: UPLOAD_EXTENSIONS,
-        })
-        const files = pick.tempFiles || []
-
-        if (files.length === 0) {
-          return
-        }
-
-        const pickedFiles = files.map((file) => ({
-          key: String(Math.random()).slice(2),
-          name: resolvePickedFileName(file),
-          sizeText: this.formatSize(Number(file.size) || 0),
-        }))
-
-        this.setData({
-          lastPickedFiles: pickedFiles.slice(0, 6),
-          lastPickedCount: pickedFiles.length,
-          lastPickedMoreCount: Math.max(0, pickedFiles.length - 6),
-        })
-
-        wx.showLoading({
-          title: '正在上传',
-          mask: true,
-        })
-
-        const uploadedDocIds = []
-
-        for (let index = 0; index < files.length; index += 1) {
-          const file = files[index]
-          const uploadRes = await api.uploadDocument(
-            resolvePickedFilePath(file),
-            resolvePickedFileName(file)
-          )
-          const uploadedDocId = uploadRes && uploadRes.data
-            ? uploadRes.data.id
-            : (uploadRes && uploadRes.id)
-          if (uploadedDocId || uploadedDocId === 0) {
-            uploadedDocIds.push(uploadedDocId)
-          }
-        }
-
-        const refreshed = await this.loadDocuments({ silent: true })
-        if (uploadedDocIds.length) {
-          this.scheduleDocumentPolling()
-        }
-        wx.showToast({
-          title: refreshed ? '上传成功，后台正在解析' : '上传成功，下拉刷新可查看',
-          icon: 'success',
-        })
-      })
-    } catch (err) {
-      if (isPickerCancelError(err)) {
-        return
-      }
-
-      console.error('[docai][documents] chooseAndUpload failed', err)
-      wx.showToast({
-        title: getPickerErrorMessage(err, '上传失败'),
-        icon: 'none',
-      })
-    } finally {
-      wx.hideLoading()
-    }
-  },
-
   async chooseAndUpload() {
     return this.runUploadFlow()
+  },
+
+  showUploadPickerFallbackHint(err) {
+    wx.showModal({
+      title: '未能打开微信会话文件选择',
+      content: getPickerErrorMessage(err, '请先把文件发送到微信会话或文件传输助手后重试。') + '\n\n建议：\n1. 先在文件传输助手发送 1 份文件\n2. 返回小程序立即点击上传\n3. 若仍失败，请重启微信后重试',
+      showCancel: false,
+    })
   },
 
   async runUploadFlow(options) {
@@ -835,13 +780,13 @@ Page({
       retrying: false,
     }, options || {})
 
-    if (!ensureLogin() || this.data.uploadingFiles) {
+    if (!ensureLogin() || this.data.uploadingFiles || this.uploadFlowRunning) {
       return
     }
 
-    try {
-      this.setData({ uploadingFiles: true })
+    this.uploadFlowRunning = true
 
+    try {
       let pickedFiles = []
       let validFiles = []
       let rejectedFiles = []
@@ -850,7 +795,7 @@ Page({
         validFiles = settings.retryFiles.slice()
         pickedFiles = validFiles.slice()
       } else {
-        const selection = await this.ensurePrivacyAuthorized('document-upload', () => selectLocalFiles({
+        const selection = await this.runNativePrivacyApi('document-upload', () => selectLocalFiles({
           count: 9,
           allowedExtensions: UPLOAD_EXTENSIONS,
         }))
@@ -871,6 +816,8 @@ Page({
         return
       }
 
+      this.setData({ uploadingFiles: true })
+
       wx.showLoading({
         title: settings.retrying ? '姝ｅ湪閲嶈瘯' : '姝ｅ湪涓婁紶',
         mask: true,
@@ -889,14 +836,7 @@ Page({
       })
 
       const uploadedDocIds = uploadResult.successItems
-        .map((item) => {
-          const response = item && item.response
-          if (!response) {
-            return null
-          }
-
-          return response.data ? response.data.id : response.id
-        })
+        .map((item) => item && item.response && item.response.data && item.response.data.id)
         .filter((item) => item || item === 0)
 
       this.lastRetryFiles = uploadResult.failedItems.map((item) => item.file)
@@ -931,6 +871,11 @@ Page({
         return
       }
 
+      if (err && err.name === 'MessageFilePickerError') {
+        this.showUploadPickerFallbackHint(err)
+        return
+      }
+
       console.error('[docai][documents] chooseAndUpload failed', err)
       wx.showToast({
         title: getPickerErrorMessage(err, '涓婁紶澶辫触'),
@@ -939,6 +884,7 @@ Page({
     } finally {
       wx.hideLoading()
       this.setData({ uploadingFiles: false })
+      this.uploadFlowRunning = false
     }
   },
 

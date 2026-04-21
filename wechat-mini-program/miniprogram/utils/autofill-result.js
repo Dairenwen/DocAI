@@ -6,6 +6,9 @@ const {
 const {
   resolveAutofillOutputName,
 } = require('./autofill-name')
+const {
+  normalizeFileName,
+} = require('./document-name')
 
 const MAX_RECORD_COUNT = 80
 
@@ -46,9 +49,9 @@ function buildRecordId(record) {
 
 function normalizeAutofillResult(record) {
   const createdAt = normalizeText(record && record.createdAt) || new Date().toISOString()
-  const templateName = normalizeText(record && record.templateName)
+  const templateName = normalizeFileName(record && record.templateName)
   const summaryText = normalizeText(record && record.summaryText)
-  const outputName = resolveAutofillOutputName(record)
+  const outputName = normalizeFileName(resolveAutofillOutputName(record))
 
   return {
     recordId: buildRecordId(record),

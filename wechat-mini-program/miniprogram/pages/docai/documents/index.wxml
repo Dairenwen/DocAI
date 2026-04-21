@@ -292,7 +292,7 @@
       <view class="privacy-dialog-actions">
         <button class="ghost-btn inline-btn" bindtap="handlePrivacyDisagree">暂不同意</button>
         <button
-          id="{{privacyDialog.agreeButtonId}}"
+          id="docai-privacy-agree-btn"
           class="solid-btn inline-btn"
           open-type="agreePrivacyAuthorization"
           bindagreeprivacyauthorization="handlePrivacyAgree"

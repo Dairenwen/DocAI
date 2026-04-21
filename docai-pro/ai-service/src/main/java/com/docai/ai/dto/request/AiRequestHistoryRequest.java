@@ -1,13 +1,17 @@
 package com.docai.ai.dto.request;
 
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 /**
  * AI历史记录请求参数DTO
  */
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class AiRequestHistoryRequest {
 
     // 页码

@@ -86,3 +86,33 @@ docai-pro/data/local-oss/
 .env.*.local
 application-local.yml
 application-dev.yml
+
+# ==================== 模型文件 & 数据集 ====================
+model-reference/
+data/
+test-data/data/
+*.bin
+*.safetensors
+*.onnx
+*.pt
+*.pth
+*.pkl
+*.h5
+*.npy
+*.npz
+
+# ==================== Qt 编译产物 ====================
+build-DocAI-Desktop_Qt_5_14_2_MinGW_64_bit-Debug/
+build-DocAI-Desktop_Qt_5_14_2_MinGW_64_bit-Release/
+*.o
+*.exe
+*.dll
+*.a
+
+# ==================== nginx 静态文件（由 CI 构建生成）====================
+docai-pro/deploy/nginx/web/dist/
+
+# ==================== 临时文件 ====================
+copy_verify*.txt
+ssl_err*.txt
+ssl_out*.txt

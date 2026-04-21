@@ -146,6 +146,7 @@ export const aiChat = async ({ message, documentId, signal }) => {
   let finalText = ''
   let modifiedExcelUrl = ''
   let resultData = []
+  let agentAction = null
 
   try {
     while (true) {
@@ -180,6 +181,7 @@ export const aiChat = async ({ message, documentId, signal }) => {
             finalText = result.aiResponse || payload.aiResponseContent || ''
             modifiedExcelUrl = result.modifiedExcelUrl || ''
             resultData = Array.isArray(result.resultData) ? result.resultData : []
+            agentAction = result.agentAction || null
             if (!finalText && Array.isArray(result.resultData) && result.resultData.length > 0) {
               finalText = JSON.stringify(result.resultData, null, 2)
             }
@@ -214,7 +216,8 @@ export const aiChat = async ({ message, documentId, signal }) => {
   return {
     reply: finalText,
     modifiedExcelUrl,
-    resultData
+    resultData,
+    agentAction
   }
 }
 
@@ -225,6 +228,45 @@ export const sendContentEmail = (data) => request.post('/ai/send-content-email',
 export const aiGenerate = () => Promise.reject(new Error('当前后端未提供 AI 写作生成接口'))
 export const aiPolish = () => Promise.reject(new Error('当前后端未提供 AI 润色接口'))
 export const updateDocumentContent = (docId, content) => request.post(`/ai/documents/${docId}/apply-edit`, { content })
+
+// ==================== Agent 智能填表工作流（复用现有API）====================
+
+// Agent源文档上传（复用uploadSourceDocument）
+export const agentUploadSourceDoc = (file, onProgress) => uploadSourceDocument(file, onProgress)
+
+// Agent查询文档提取状态
+export const agentCheckSourceStatus = (docIds) => {
+  return request.get('/source/documents/status').then(res => {
+    const docs = res.data || []
+    const filtered = docIds.length > 0 ? docs.filter(d => docIds.includes(d.id)) : docs
+    return {
+      ...res,
+      data: filtered
+    }
+  })
+}
+
+// Agent上传并填写模板（多步骤：upload → parse → fill）
+export const agentUploadAndFill = async (templateFile, sourceDocIds, userRequirement, onProgress) => {
+  // Step 1: Upload template
+  const uploadRes = await uploadTemplateFile(templateFile, onProgress)
+  const templateId = uploadRes.data?.id || uploadRes.data?.templateId
+  if (!templateId) throw new Error('模板上传失败，未获取到模板ID')
+
+  // Step 2: Parse slots
+  await parseTemplateSlots(templateId)
+
+  // Step 3: Fill template
+  await fillTemplate(templateId, sourceDocIds, userRequirement || '')
+
+  return { templateId }
+}
+
+// Agent获取填充决策
+export const agentGetDecisions = (templateId) => getTemplateDecisions(templateId)
+
+// Agent下载填充结果
+export const agentDownloadResult = (templateId) => downloadTemplateResult(templateId)
 
 // ==================== 模型管理 ====================
 

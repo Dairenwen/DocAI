@@ -67,4 +67,9 @@ public class AiUnifiedResponse {
 
     // 修改后的excel下载链接
     private String modifiedExcelUrl;
+
+    /**Agent动作字段 - AI Agent工作流触发**/
+    // agentAction字段用于前端驱动多步骤Agent工作流
+    // 例如: {"type":"agent_fill_start","step":"upload_source_docs"}
+    private java.util.Map<String, Object> agentAction;
 }

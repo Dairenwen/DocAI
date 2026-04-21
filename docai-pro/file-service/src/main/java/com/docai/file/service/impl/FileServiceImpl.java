@@ -215,17 +215,24 @@ public class FileServiceImpl implements FilesService {
         }
         // 2. 根据fileId获取所有的表
         List<String> tableNames = fileTableMappingService.getTableNamesByFileId(fileId);
-        String currentTableName = tableNames.get(sheetIndex);
+        if (tableNames == null || tableNames.isEmpty()) {
+            throw new IllegalArgumentException("文件表信息不存在，可能文件根据内容无效");
+        }
+        int idx = (sheetIndex != null) ? sheetIndex : 0;
+        if (idx >= tableNames.size()) idx = 0;
+        String currentTableName = tableNames.get(idx);
+        int pg = (page != null) ? page : 1;
+        int pgSize = (pageSize != null) ? pageSize : 20;
         Long totalRecords = getTotalRecords(currentTableName);
 
         // 3. 从表中获取数据，然后构建响应
         return ExcelPreviewResponse.builder()
                 .excelInfo(getExcelInfo(fileId))
                 .sheets(tableNames.size() > 1 ? buildSheetInfoList(tableNames) : null)
-                .currentSheetIndex(sheetIndex)
+                .currentSheetIndex(idx)
                 .headers(getColumnHeaders(currentTableName))
-                .dataRows(getPageData(currentTableName, page, pageSize))
-                .paginationInfo(getPaginationInfo(page, pageSize, totalRecords))
+                .dataRows(getPageData(currentTableName, pg, pgSize))
+                .paginationInfo(getPaginationInfo(pg, pgSize, totalRecords))
                 .build();
     }
 
@@ -485,13 +492,17 @@ public class FileServiceImpl implements FilesService {
 
     // 根据文件地址获取key
     private String getOssKey(String fileUrl) {
+        if (fileUrl == null) return "";
+        // Local OSS URL: local://path/to/file (no host part, strip prefix directly)
+        if (fileUrl.startsWith("local://")) {
+            return fileUrl.substring("local://".length());
+        }
+        // Aliyun/remote URL: https://bucket.host/path/to/file — skip scheme + host (index 0-2)
         String[] parts = fileUrl.split("/");
         if (parts.length >= 4) {
             StringBuilder key = new StringBuilder();
-            for (int i = 3; i <parts.length; i++) {
-                if (i >3) {
-                    key.append("/");
-                }
+            for (int i = 3; i < parts.length; i++) {
+                if (i > 3) key.append("/");
                 key.append(parts[i]);
             }
             return key.toString();

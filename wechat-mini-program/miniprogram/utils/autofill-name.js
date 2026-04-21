@@ -1,15 +1,19 @@
+const {
+  normalizeFileName,
+} = require('./document-name')
+
 function normalizeText(value) {
   return String(value || '').trim()
 }
 
 function getFileExtension(fileName) {
-  const normalizedName = normalizeText(fileName)
+  const normalizedName = normalizeFileName(fileName)
   const match = normalizedName.match(/\.([^.\\/]+)$/)
   return match ? String(match[1] || '').toLowerCase() : ''
 }
 
 function stripExtension(fileName) {
-  const normalizedName = normalizeText(fileName)
+  const normalizedName = normalizeFileName(fileName)
   return normalizedName.replace(/\.[^.\\/]+$/, '')
 }
 
@@ -144,7 +148,7 @@ function buildSourceLabel(sourceDocs) {
   }
 
   const firstDoc = normalizedSourceDocs[0] || {}
-  const firstName = cleanLabel(firstDoc.fileName || firstDoc.title || firstDoc.name)
+  const firstName = cleanLabel(normalizeFileName(firstDoc.fileName || firstDoc.title || firstDoc.name))
   if (!firstName) {
     return normalizedSourceDocs.length > 1 ? normalizedSourceDocs.length + '份资料' : ''
   }
@@ -178,8 +182,8 @@ function joinUniqueParts(parts) {
 function buildFriendlyBaseName(record) {
   const decisionLabel = pickDecisionLabel(record && record.decisions)
   const sourceLabel = buildSourceLabel(record && record.sourceDocs)
-  const templateLabel = cleanLabel(record && record.templateName)
-  const rawLabel = cleanLabel(record && (record.outputName || record.fileName))
+  const templateLabel = cleanLabel(normalizeFileName(record && record.templateName))
+  const rawLabel = cleanLabel(normalizeFileName(record && (record.outputName || record.fileName)))
 
   const parts = joinUniqueParts([
     decisionLabel || sourceLabel,
@@ -199,12 +203,12 @@ function buildFriendlyBaseName(record) {
 }
 
 function resolveAutofillOutputName(record) {
-  const rawOutputName = normalizeText(record && (record.outputName || record.fileName))
+  const rawOutputName = normalizeFileName(record && (record.outputName || record.fileName))
   const fileExtension = normalizeText(
     (record && record.fileType)
     || getFileExtension(rawOutputName)
     || getFileExtension(record && record.outputFile)
-    || getFileExtension(record && record.templateName)
+    || getFileExtension(normalizeFileName(record && record.templateName))
     || 'xlsx'
   ).toLowerCase()
 

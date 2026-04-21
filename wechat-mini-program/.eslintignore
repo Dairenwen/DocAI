@@ -1,0 +1,6 @@
+cloudfunctions/
+miniprogram/miniprogram_npm/
+miniprogram/node_modules/
+node_modules/
+tmp/
+tools/

@@ -249,6 +249,110 @@
                     <el-icon :size="14"><Upload /></el-icon>
                   </button>
                 </el-tooltip>
+
+              </div>
+              <!-- 开始填表 CTA 按钮：AI识别到填表意图时固定展示在气泡下方 -->
+              <div
+                class="agent-fill-cta"
+                v-if="msg._meta?.agentAction?.type === 'agent_fill_start' && !msg._streaming"
+              >
+                <el-button
+                  type="primary"
+                  class="agent-fill-cta-btn"
+                  @click="handleAgentFillStart(msg._meta.agentAction)"
+                >
+                  <el-icon :size="15"><Memo /></el-icon>
+                  <span>开始填表</span>
+                </el-button>
+              </div>
+
+              <!-- Agent Result 内嵌展示区 -->
+              <div class="agent-result-inline" v-if="msg._meta?.agentResult">
+                <div class="agent-result-header">
+                  <span class="agent-result-title">📊 填充完成 — 结果分析</span>
+                  <div class="agent-result-header-actions">
+                    <el-button size="small" type="primary" @click="downloadAgentFillResult(msg._meta.agentResult.templateId)">
+                      <el-icon><Download /></el-icon> 下载填充文件
+                    </el-button>
+                    <el-button size="small" @click="previewAgentFillResult(msg._meta.agentResult)">
+                      <el-icon><View /></el-icon> 预览分析
+                    </el-button>
+                  </div>
+                </div>
+                <!-- 统计摘要 -->
+                <div class="agent-result-stats">
+                  <div class="ar-stat-card">
+                    <div class="ar-stat-value">{{ msg._meta.agentResult.decisions?.length || 0 }}</div>
+                    <div class="ar-stat-label">填充字段数</div>
+                  </div>
+                  <div class="ar-stat-card success">
+                    <div class="ar-stat-value">{{ getFilledCount(msg._meta.agentResult.decisions) }}</div>
+                    <div class="ar-stat-label">成功填充</div>
+                  </div>
+                  <div class="ar-stat-card info">
+                    <div class="ar-stat-value">{{ getAvgConfidence(msg._meta.agentResult.decisions) }}%</div>
+                    <div class="ar-stat-label">平均置信度</div>
+                  </div>
+                </div>
+                <!-- 置信度分布条形图 -->
+                <div class="agent-conf-chart">
+                  <div class="ar-chart-label">置信度分布</div>
+                  <div class="ar-conf-bars">
+                    <div class="ar-conf-bar">
+                      <span class="ar-conf-bar-label">高 (≥85%)</span>
+                      <div class="ar-conf-bar-track">
+                        <div class="ar-conf-bar-fill green" :style="{ width: getConfPercent(msg._meta.agentResult.decisions, 0.85, 1) + '%' }"></div>
+                      </div>
+                      <span class="ar-conf-bar-count">{{ getConfCount(msg._meta.agentResult.decisions, 0.85, 1) }}</span>
+                    </div>
+                    <div class="ar-conf-bar">
+                      <span class="ar-conf-bar-label">中 (70-85%)</span>
+                      <div class="ar-conf-bar-track">
+                        <div class="ar-conf-bar-fill yellow" :style="{ width: getConfPercent(msg._meta.agentResult.decisions, 0.70, 0.85) + '%' }"></div>
+                      </div>
+                      <span class="ar-conf-bar-count">{{ getConfCount(msg._meta.agentResult.decisions, 0.70, 0.85) }}</span>
+                    </div>
+                    <div class="ar-conf-bar">
+                      <span class="ar-conf-bar-label">低 (&lt;70%)</span>
+                      <div class="ar-conf-bar-track">
+                        <div class="ar-conf-bar-fill red" :style="{ width: getConfPercent(msg._meta.agentResult.decisions, 0, 0.70) + '%' }"></div>
+                      </div>
+                      <span class="ar-conf-bar-count">{{ getConfCount(msg._meta.agentResult.decisions, 0, 0.70) }}</span>
+                    </div>
+                  </div>
+                </div>
+                <!-- 填充明细表 -->
+                <div class="agent-decisions-table">
+                  <div class="ar-table-header">
+                    <span>字段</span><span>填充值</span><span>置信度</span><span>决策方式</span>
+                  </div>
+                  <div
+                    v-for="(dec, idx) in (msg._meta.agentResult.decisions || []).slice(0, 10)"
+                    :key="idx"
+                    class="ar-table-row"
+                  >
+                    <span class="ar-cell-label">{{ dec.slotLabel || dec.label || '-' }}</span>
+                    <span class="ar-cell-value">{{ dec.finalValue || '(未填充)' }}</span>
+                    <span class="ar-cell-conf">
+                      <div class="ar-mini-conf-bar">
+                        <div
+                          class="ar-mini-conf-fill"
+                          :class="getConfClass(dec.finalConfidence)"
+                          :style="{ width: Math.round((dec.finalConfidence || 0) * 100) + '%' }"
+                        ></div>
+                      </div>
+                      <span>{{ Math.round((dec.finalConfidence || 0) * 100) }}%</span>
+                    </span>
+                    <span class="ar-cell-mode">
+                      <el-tag :type="getDecisionModeType(dec.decisionMode)" size="small" effect="light">
+                        {{ formatDecisionMode(dec.decisionMode) }}
+                      </el-tag>
+                    </span>
+                  </div>
+                  <div v-if="(msg._meta.agentResult.decisions || []).length > 10" class="ar-more-tip">
+                    还有 {{ (msg._meta.agentResult.decisions || []).length - 10 }} 条记录，点击"预览分析"查看全部
+                  </div>
+                </div>
               </div>
             </div>
           </template>
@@ -280,6 +384,19 @@
 
       <!-- 输入区域 -->
       <div class="input-area">
+        <!-- 智能填表快捷入口工具栏 -->
+        <div class="input-toolbar">
+          <button class="toolbar-fill-btn" @click="handleAgentFillStart(null)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style="flex-shrink:0">
+              <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" stroke-width="2"/>
+              <line x1="7" y1="8" x2="17" y2="8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <line x1="7" y1="12" x2="17" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <line x1="7" y1="16" x2="13" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            开始填表
+          </button>
+          <span class="toolbar-fill-tip">上传源文档 + 模板，AI 智能自动填写</span>
+        </div>
         <div class="input-box" :class="{ focused: inputFocused }">
           <el-input
             v-model="inputText"
@@ -381,18 +498,276 @@
     <el-dialog v-model="previewVisible" title="内容预览" width="80vw" top="3vh">
       <div class="preview-body" v-html="renderMarkdown(previewText)"></div>
     </el-dialog>
+
+    <!-- ===== Agent智能填表 - 源文档上传弹窗 ===== -->
+    <el-dialog
+      v-model="showAgentSourceDialog"
+      title="🤖 智能填表向导"
+      width="660px"
+      :close-on-click-modal="false"
+      destroy-on-close
+    >
+      <div class="agent-dialog-body">
+        <!-- 步骤进度条 -->
+        <div class="agent-wizard-steps">
+          <div class="aws-step active">
+            <span class="aws-num">1</span>
+            <span class="aws-label">上传源文档</span>
+          </div>
+          <div class="aws-line"></div>
+          <div class="aws-step">
+            <span class="aws-num">2</span>
+            <span class="aws-label">上传模板</span>
+          </div>
+          <div class="aws-line"></div>
+          <div class="aws-step">
+            <span class="aws-num">3</span>
+            <span class="aws-label">AI 自动填写</span>
+          </div>
+        </div>
+        <div class="agent-dialog-tip">
+          请上传包含填表信息的源文档（支持 .docx / .xlsx / .txt / .md），可多选。
+          AI将自动提取文档中的关键字段。
+        </div>
+        <!-- 上传区域 -->
+        <div class="agent-upload-zone" @click="triggerSourceFileInput" @dragover.prevent @drop.prevent="onSourceFileDrop">
+          <el-icon :size="40" class="agent-upload-icon"><Upload /></el-icon>
+          <p>点击或拖拽文件到此处</p>
+          <p class="agent-upload-hint">支持 .docx / .xlsx / .txt / .md，可多选</p>
+          <input
+            ref="sourceFileInputRef"
+            type="file"
+            multiple
+            accept=".docx,.xlsx,.txt,.md"
+            style="display:none"
+            @change="onSourceFileSelect"
+          />
+        </div>
+        <!-- 已上传文件列表 -->
+        <div class="agent-file-list" v-if="agentSourceFiles.length > 0">
+          <div
+            v-for="(f, idx) in agentSourceFiles"
+            :key="idx"
+            class="agent-file-item"
+          >
+            <el-icon :size="18" class="file-icon"><Document /></el-icon>
+            <span class="file-name">{{ f.name }}</span>
+            <div class="file-status">
+              <el-progress
+                v-if="f.status === 'uploading'"
+                :percentage="f.progress"
+                :stroke-width="6"
+                style="width:100px"
+              />
+              <el-tag v-else-if="f.status === 'uploaded'" type="info" size="small">提取中</el-tag>
+              <el-tag v-else-if="f.status === 'parsed'" type="success" size="small">提取完成</el-tag>
+              <el-tag v-else-if="f.status === 'failed'" type="danger" size="small">失败</el-tag>
+              <el-tag v-else size="small">待上传</el-tag>
+            </div>
+            <el-button
+              v-if="f.status === 'pending'"
+              type="danger" text size="small"
+              @click="agentSourceFiles.splice(idx,1)"
+            >删除</el-button>
+          </div>
+        </div>
+        <!-- 提取进度提示 -->
+        <div class="agent-extract-tip" v-if="agentExtracting">
+          <el-icon class="is-loading"><Loading /></el-icon>
+          正在后台提取文档信息，请稍候...（大文档可能需要30秒左右）
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="showAgentSourceDialog = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="agentUploading"
+          :disabled="agentSourceFiles.filter(f=>f.status==='pending').length === 0 && agentSourceDocIds.length === 0"
+          @click="doAgentSourceUpload"
+        >
+          {{ agentSourceFiles.filter(f=>f.status==='pending').length > 0 ? '上传并提取' : '下一步：上传表格模板' }}
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- ===== Agent智能填表 - 模板上传+填写弹窗 ===== -->
+    <el-dialog
+      v-model="showAgentTemplateDialog"
+      title="🤖 智能填表向导"
+      width="660px"
+      :close-on-click-modal="false"
+      destroy-on-close
+    >
+      <div class="agent-dialog-body">
+        <!-- 步骤进度条 -->
+        <div class="agent-wizard-steps">
+          <div class="aws-step done">
+            <span class="aws-num">✓</span>
+            <span class="aws-label">上传源文档</span>
+          </div>
+          <div class="aws-line done"></div>
+          <div class="aws-step active">
+            <span class="aws-num">2</span>
+            <span class="aws-label">上传模板</span>
+          </div>
+          <div class="aws-line"></div>
+          <div class="aws-step">
+            <span class="aws-num">3</span>
+            <span class="aws-label">AI 自动填写</span>
+          </div>
+        </div>
+        <div class="agent-dialog-tip">
+          请上传需要填写的表格模板文件（支持 .xlsx / .docx）。
+          AI将根据已提取的源文档信息自动填写模板。
+        </div>
+        <!-- 源文档摘要 -->
+        <div class="agent-source-summary">
+          <el-icon :size="16"><Document /></el-icon>
+          已选源文档：<strong>{{ agentSourceDocIds.length }}</strong> 个
+          <span class="source-names">（{{ agentSourceFileNames.join('、') }}）</span>
+        </div>
+        <!-- 模板上传区域 -->
+        <div class="agent-upload-zone" @click="triggerTemplateFileInput" @dragover.prevent @drop.prevent="onTemplateFileDrop">
+          <el-icon :size="40" class="agent-upload-icon"><Upload /></el-icon>
+          <p v-if="!agentTemplateFile">点击或拖拽模板文件到此处</p>
+          <p v-else class="template-selected">✅ 已选择：{{ agentTemplateFile.name }}</p>
+          <p class="agent-upload-hint">支持 .xlsx / .docx</p>
+          <input
+            ref="templateFileInputRef"
+            type="file"
+            accept=".xlsx,.docx"
+            style="display:none"
+            @change="onTemplateFileSelect"
+          />
+        </div>
+        <!-- 需求输入 -->
+        <div class="agent-requirement-section">
+          <div class="ar-req-label">
+            <el-icon :size="14"><EditPen /></el-icon> 填表需求说明（可选）
+          </div>
+          <el-input
+            v-model="agentRequirement"
+            type="textarea"
+            :rows="3"
+            placeholder="例如：仅填写2024年北京市的数据，优先选择金额大于100万的项目"
+            maxlength="500"
+            show-word-limit
+          />
+        </div>
+        <!-- 填表进度 -->
+        <div class="agent-fill-progress" v-if="agentFilling">
+          <el-progress :percentage="agentFillProgress" :stroke-width="10" status="striped" striped striped-flow />
+          <div class="agent-fill-tip">
+            <el-icon class="is-loading"><Loading /></el-icon>
+            AI正在智能填写表格，请稍候（通常需要20-60秒）...
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="showAgentTemplateDialog = false" :disabled="agentFilling">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="agentFilling"
+          :disabled="!agentTemplateFile"
+          @click="doAgentFill"
+        >
+          {{ agentFilling ? '填表中...' : '开始自动填表' }}
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- ===== Agent填充结果预览弹窗 ===== -->
+    <el-dialog
+      v-model="showAgentResultDialog"
+      title="📊 填充结果详情"
+      width="80vw"
+      top="3vh"
+    >
+      <div class="agent-result-full" v-if="agentCurrentResult">
+        <!-- 统计卡片 -->
+        <div class="agent-result-stats-full">
+          <div class="ar-stat-card-full">
+            <div class="ar-stat-value">{{ agentCurrentResult.decisions?.length || 0 }}</div>
+            <div class="ar-stat-label">填充字段总数</div>
+          </div>
+          <div class="ar-stat-card-full success">
+            <div class="ar-stat-value">{{ getFilledCount(agentCurrentResult.decisions) }}</div>
+            <div class="ar-stat-label">成功填充数</div>
+          </div>
+          <div class="ar-stat-card-full warning">
+            <div class="ar-stat-value">{{ (agentCurrentResult.decisions || []).length - getFilledCount(agentCurrentResult.decisions) }}</div>
+            <div class="ar-stat-label">未填充数</div>
+          </div>
+          <div class="ar-stat-card-full info">
+            <div class="ar-stat-value">{{ getAvgConfidence(agentCurrentResult.decisions) }}%</div>
+            <div class="ar-stat-label">平均置信度</div>
+          </div>
+        </div>
+        <!-- 决策方式分析 -->
+        <div class="agent-mode-analysis">
+          <div class="ar-mode-title">决策方式分布</div>
+          <div class="ar-mode-bars">
+            <div v-for="mode in getDecisionModeSummary(agentCurrentResult.decisions)" :key="mode.mode" class="ar-mode-bar-row">
+              <span class="ar-mode-name">{{ mode.label }}</span>
+              <div class="ar-mode-track">
+                <div class="ar-mode-fill" :class="mode.colorClass" :style="{ width: mode.percent + '%' }"></div>
+              </div>
+              <span class="ar-mode-count">{{ mode.count }}</span>
+            </div>
+          </div>
+        </div>
+        <!-- 完整明细表 -->
+        <el-table
+          :data="agentCurrentResult.decisions || []"
+          stripe
+          size="small"
+          class="agent-full-table"
+          max-height="400"
+        >
+          <el-table-column prop="slotLabel" label="字段名" width="150" />
+          <el-table-column prop="finalValue" label="填充值" min-width="180">
+            <template #default="{ row }">
+              <span :class="{ 'empty-value': !row.finalValue }">{{ row.finalValue || '(未填充)' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="置信度" width="130">
+            <template #default="{ row }">
+              <el-progress
+                :percentage="Math.round((row.finalConfidence || 0) * 100)"
+                :stroke-width="6"
+                :status="row.finalConfidence >= 0.85 ? 'success' : row.finalConfidence >= 0.70 ? '' : 'warning'"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column label="决策方式" width="120">
+            <template #default="{ row }">
+              <el-tag :type="getDecisionModeType(row.decisionMode)" size="small" effect="light">
+                {{ formatDecisionMode(row.decisionMode) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="reason" label="决策原因" min-width="180" show-overflow-tooltip />
+        </el-table>
+      </div>
+      <template #footer>
+        <el-button @click="showAgentResultDialog = false">关闭</el-button>
+        <el-button type="primary" @click="downloadAgentFillResult(agentCurrentResult?.templateId)">
+          <el-icon><Download /></el-icon> 下载填充文件
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { aiChat, getSourceDocuments, getExcelFiles, downloadExcelFile, downloadSourceDocument, downloadBlob, getLlmProviders, getCurrentLlmProvider, switchLlmProvider, sendAiResultEmail, sendContentEmail, updateDocumentContent, listConversations, createConversation, updateConversation, deleteConversationApi, getConversationMessages, addConversationMessage } from '../api'
+import { aiChat, getSourceDocuments, getExcelFiles, downloadExcelFile, downloadSourceDocument, downloadBlob, getLlmProviders, getCurrentLlmProvider, switchLlmProvider, sendAiResultEmail, sendContentEmail, updateDocumentContent, listConversations, createConversation, updateConversation, deleteConversationApi, getConversationMessages, addConversationMessage, agentUploadSourceDoc, agentCheckSourceStatus, agentUploadAndFill, agentGetDecisions, agentDownloadResult, downloadTemplateResult } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Delete, Position, CopyDocument, Document, Download, Close, FolderOpened,
   DArrowLeft, DArrowRight, Link, Setting, Memo, Search, EditPen, SetUp,
-  DataAnalysis, Upload, ChatDotRound, Plus, Top, RefreshRight, Promotion, View, Message, VideoPause
+  DataAnalysis, Upload, ChatDotRound, Plus, Top, RefreshRight, Promotion, View, Message, VideoPause, Loading
 } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -439,6 +814,24 @@ const previewText = ref('')
 const lastUserPrompt = ref('')
 let _streamingTimer = null
 let _unsubscribe = null
+
+// ===== Agent智能填表工作流状态 =====
+const showAgentSourceDialog = ref(false)
+const showAgentTemplateDialog = ref(false)
+const showAgentResultDialog = ref(false)
+const agentSourceFiles = ref([]) // { name, file, status: 'pending'|'uploading'|'uploaded'|'parsed'|'failed', progress, docId }
+const agentSourceDocIds = ref([]) // 已成功上传并开始提取的 docId 列表
+const agentSourceFileNames = ref([]) // 文件名列表，用于显示
+const agentTemplateFile = ref(null)
+const agentRequirement = ref('')
+const agentUploading = ref(false)
+const agentExtracting = ref(false)
+const agentFilling = ref(false)
+const agentFillProgress = ref(0)
+const agentCurrentResult = ref(null) // { templateId, decisions }
+const sourceFileInputRef = ref(null)
+const templateFileInputRef = ref(null)
+let _agentExtractionTimer = null
 
 // 用户信息
 const userId = localStorage.getItem('userId') || 'default'
@@ -631,7 +1024,7 @@ const switchConversation = async (sessionId) => {
     const res = await getConversationMessages(sessionId)
     const serverMsgs = res.data || []
     if (serverMsgs.length > 0) {
-      messages.value = serverMsgs.map(m => ({ role: m.role, content: m.content }))
+      messages.value = serverMsgs.map(mapServerMsg)
     } else {
       messages.value = [{ role: 'ai', content: buildWelcomeMessage(currentDoc.value), _isWelcome: true }]
     }
@@ -744,7 +1137,7 @@ const loadSessions = async () => {
         const res = await getConversationMessages(targetSessionId)
         const serverMsgs = res.data || []
         if (serverMsgs.length > 0) {
-          messages.value = serverMsgs.map(m => ({ role: m.role, content: m.content }))
+          messages.value = serverMsgs.map(mapServerMsg)
         } else {
           messages.value = [{ role: 'ai', content: buildWelcomeMessage(currentDoc.value), _isWelcome: true }]
         }
@@ -1055,7 +1448,8 @@ const beginTypewriter = (fullText, payload = {}) => {
     _streaming: true,
     _fullContent: fullText,
     _meta: {
-      modifiedExcelUrl: payload.modifiedExcelUrl || ''
+      modifiedExcelUrl: payload.modifiedExcelUrl || '',
+      agentAction: payload.agentAction || null
     }
   }
   messages.value.push(msg)
@@ -1081,6 +1475,7 @@ const beginTypewriter = (fullText, payload = {}) => {
         addConversationMessage(activeConversationId.value, { role: 'ai', content: fullText }).catch(() => {})
       }
       scrollToBottom()
+      // Agent动作：打字完成后不自动弹窗，由用户点击「开始填表」按钮触发
       return
     }
     idx = Math.min(idx + step, len)
@@ -1311,10 +1706,498 @@ const scrollToBottom = async () => {
     chatArea.value.scrollTop = chatArea.value.scrollHeight
   }
 }
+
+// ===== Agent智能填表工作流函数 =====
+
+// 触发Agent填表工作流（打字完成后自动调用，或用户点击"开始填表"按钮）
+const handleAgentFillStart = (agentAction) => {
+  // 重置状态
+  agentSourceFiles.value = []
+  agentSourceDocIds.value = []
+  agentSourceFileNames.value = []
+  agentTemplateFile.value = null
+  agentRequirement.value = ''
+  agentFillProgress.value = 0
+  showAgentSourceDialog.value = true
+}
+
+// 触发源文档文件选择
+const triggerSourceFileInput = () => {
+  sourceFileInputRef.value?.click()
+}
+
+// 源文档文件拖拽
+const onSourceFileDrop = (e) => {
+  const files = Array.from(e.dataTransfer?.files || [])
+  addSourceFiles(files)
+}
+
+// 源文档文件选择
+const onSourceFileSelect = (e) => {
+  const files = Array.from(e.target.files || [])
+  addSourceFiles(files)
+  e.target.value = '' // 重置input
+}
+
+const addSourceFiles = (files) => {
+  const allowed = ['.docx', '.xlsx', '.txt', '.md']
+  files.forEach(file => {
+    const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase()
+    if (!allowed.includes(ext)) {
+      ElMessage.warning(`不支持的文件格式: ${file.name}`)
+      return
+    }
+    // 避免重复
+    if (agentSourceFiles.value.some(f => f.name === file.name)) return
+    agentSourceFiles.value.push({ name: file.name, file, status: 'pending', progress: 0, docId: null })
+  })
+}
+
+// 执行源文档上传
+const doAgentSourceUpload = async () => {
+  const pendingFiles = agentSourceFiles.value.filter(f => f.status === 'pending')
+  if (pendingFiles.length === 0) {
+    // 没有待上传的文件，但已有docIds，直接进入下一步
+    if (agentSourceDocIds.value.length > 0) {
+      showAgentSourceDialog.value = false
+      showAgentTemplateDialog.value = true
+    } else {
+      ElMessage.warning('请先添加要上传的源文档')
+    }
+    return
+  }
+
+  agentUploading.value = true
+  let successCount = 0
+
+  for (const fileItem of pendingFiles) {
+    fileItem.status = 'uploading'
+    fileItem.progress = 0
+    try {
+      const res = await agentUploadSourceDoc(fileItem.file, (e) => {
+        fileItem.progress = Math.round((e.loaded / e.total) * 90)
+      })
+      const docId = res.data?.id || res.data?.docId
+      if (!docId) throw new Error('未获取到文档ID')
+      fileItem.docId = docId
+      fileItem.progress = 100
+      fileItem.status = 'uploaded'
+      agentSourceDocIds.value.push(docId)
+      agentSourceFileNames.value.push(fileItem.name)
+      successCount++
+    } catch (err) {
+      fileItem.status = 'failed'
+      ElMessage.error(`上传失败: ${fileItem.name} - ${err.message || '未知错误'}`)
+    }
+  }
+
+  agentUploading.value = false
+
+  if (successCount === 0) {
+    ElMessage.error('所有文件上传失败，请重试')
+    return
+  }
+
+  // 开始轮询提取状态
+  agentExtracting.value = true
+  addAgentChatMessage(`已上传 ${successCount} 个源文档，AI正在后台提取信息，请稍候...`)
+
+  await pollAgentSourceExtraction()
+}
+
+// 轮询源文档提取状态
+const pollAgentSourceExtraction = () => {
+  return new Promise((resolve) => {
+    let attempts = 0
+    const maxAttempts = 40 // 最多等待约120秒
+
+    const poll = async () => {
+      attempts++
+      try {
+        const res = await agentCheckSourceStatus(agentSourceDocIds.value)
+        const docs = res.data || []
+        let allDone = true
+        for (const doc of docs) {
+          const fileItem = agentSourceFiles.value.find(f => f.docId === doc.id)
+          if (!fileItem) continue
+          if (doc.uploadStatus === 'parsed') {
+            fileItem.status = 'parsed'
+          } else if (doc.uploadStatus === 'failed') {
+            fileItem.status = 'failed'
+          } else {
+            allDone = false
+          }
+        }
+
+        if (allDone || attempts >= maxAttempts) {
+          agentExtracting.value = false
+          clearTimeout(_agentExtractionTimer)
+          const parsedCount = agentSourceFiles.value.filter(f => f.status === 'parsed').length
+          addAgentChatMessage(`✅ 信息提取完成！成功提取 ${parsedCount} 个文档的字段信息。\n\n请上传表格模板文件，AI将自动匹配并填写。`)
+          showAgentSourceDialog.value = false
+          showAgentTemplateDialog.value = true
+          resolve()
+        } else {
+          _agentExtractionTimer = setTimeout(poll, 3000)
+        }
+      } catch (err) {
+        agentExtracting.value = false
+        clearTimeout(_agentExtractionTimer)
+        ElMessage.error('提取状态查询失败: ' + (err.message || ''))
+        resolve()
+      }
+    }
+
+    poll()
+  })
+}
+
+// 触发模板文件选择
+const triggerTemplateFileInput = () => {
+  templateFileInputRef.value?.click()
+}
+
+// 模板文件拖拽
+const onTemplateFileDrop = (e) => {
+  const files = Array.from(e.dataTransfer?.files || [])
+  if (files.length > 0) agentTemplateFile.value = files[0]
+}
+
+// 模板文件选择
+const onTemplateFileSelect = (e) => {
+  const file = e.target.files?.[0]
+  if (file) agentTemplateFile.value = file
+  e.target.value = ''
+}
+
+// 从消息content中解析持久化的agentResult数据
+const parseAgentDataFromContent = (raw) => {
+  if (!raw) return { content: raw, agentResult: null }
+  const match = raw.match(/\n<!-- agentData:([\s\S]*?) -->$/)
+  if (!match) return { content: raw, agentResult: null }
+  try {
+    const agentResult = JSON.parse(match[1])
+    const content = raw.slice(0, raw.length - match[0].length)
+    return { content, agentResult }
+  } catch (e) {
+    return { content: raw, agentResult: null }
+  }
+}
+
+// 将服务端消息转换为本地消息格式（同时还原agentResult元数据）
+const mapServerMsg = (m) => {
+  const { content, agentResult } = parseAgentDataFromContent(m.content)
+  const msg = { role: m.role, content }
+  if (agentResult) msg._meta = { agentResult }
+  return msg
+}
+
+// 执行填表
+const doAgentFill = async () => {
+  if (!agentTemplateFile.value) {
+    ElMessage.warning('请先选择表格模板文件')
+    return
+  }
+  if (agentSourceDocIds.value.length === 0) {
+    ElMessage.warning('请先上传源文档')
+    return
+  }
+
+  agentFilling.value = true
+  agentFillProgress.value = 10
+  addAgentChatMessage(`正在处理模板文件"${agentTemplateFile.value.name}"，AI正在智能填写中...`)
+
+  // 进度模拟动画
+  const progressTimer = setInterval(() => {
+    if (agentFillProgress.value < 85) {
+      agentFillProgress.value += Math.random() * 8
+    }
+  }, 1500)
+
+  try {
+    const { templateId } = await agentUploadAndFill(
+      agentTemplateFile.value,
+      agentSourceDocIds.value,
+      agentRequirement.value,
+      (e) => {
+        agentFillProgress.value = Math.min(30, Math.round((e.loaded / e.total) * 30))
+      }
+    )
+
+    agentFillProgress.value = 90
+
+    // 获取填充决策
+    const decisionsRes = await agentGetDecisions(templateId)
+    const decisions = decisionsRes.data || []
+
+    agentFillProgress.value = 100
+    clearInterval(progressTimer)
+    agentFilling.value = false
+    showAgentTemplateDialog.value = false
+
+    // 存储结果
+    agentCurrentResult.value = { templateId, decisions }
+
+    // 构建结果摘要
+    const filledCount = decisions.filter(d => d.finalValue && d.finalValue.trim()).length
+    const avgConf = decisions.length > 0
+      ? Math.round(decisions.reduce((s, d) => s + (d.finalConfidence || 0), 0) / decisions.length * 100)
+      : 0
+
+    const summaryMsg = `✅ **智能填表完成！**\n\n` +
+      `📊 **填充结果：**\n` +
+      `- 总字段数：${decisions.length} 个\n` +
+      `- 成功填充：${filledCount} 个\n` +
+      `- 平均置信度：${avgConf}%\n\n` +
+      `点击下方 **"下载填充文件"** 按钮下载结果，或点击 **"预览分析"** 查看详细的填充明细和数据分析。`
+
+    // 将 agentResult 序列化到消息内容尾部，用于持久化后还原
+    const agentDataMark = `\n<!-- agentData:${JSON.stringify({ templateId, decisions })} -->`
+    const persistContent = summaryMsg + agentDataMark
+
+    // 添加带结果的AI消息
+    const resultMsg = {
+      role: 'ai',
+      content: summaryMsg,   // 显示用，不含 mark
+      _meta: {
+        agentResult: { templateId, decisions }
+      }
+    }
+    messages.value.push(resultMsg)
+    if (activeConversationId.value) {
+      addConversationMessage(activeConversationId.value, { role: 'ai', content: persistContent }).catch(() => {})
+    }
+    await scrollToBottom()
+    ElMessage.success('智能填表完成！')
+
+  } catch (err) {
+    clearInterval(progressTimer)
+    agentFilling.value = false
+    agentFillProgress.value = 0
+    const errMsg = err?.response?.data?.message || err?.message || '填表失败，请重试'
+    ElMessage.error('填表失败: ' + errMsg)
+    addAgentChatMessage(`⚠️ 填表过程中出现错误：${errMsg}\n\n请检查模板文件格式是否正确，或刷新页面后重试。`)
+  }
+}
+
+// 下载填充结果
+const downloadAgentFillResult = async (templateId) => {
+  if (!templateId) {
+    ElMessage.warning('暂无可下载的填充结果')
+    return
+  }
+  try {
+    const res = await downloadTemplateResult(templateId)
+    downloadBlob(new Blob([res.data]), `填充结果_${templateId}.xlsx`)
+    ElMessage.success('下载成功')
+  } catch (err) {
+    ElMessage.error('下载失败: ' + (err?.message || '未知错误'))
+  }
+}
+
+// 预览填充结果分析
+const previewAgentFillResult = (result) => {
+  agentCurrentResult.value = result
+  showAgentResultDialog.value = true
+}
+
+// 向对话中添加AI提示消息（不调用API）
+const addAgentChatMessage = (content) => {
+  const msg = { role: 'ai', content, _isWelcome: true }
+  messages.value.push(msg)
+  scrollToBottom()
+}
+
+// ===== Agent结果数据处理辅助函数 =====
+
+const getFilledCount = (decisions) => {
+  if (!decisions || decisions.length === 0) return 0
+  return decisions.filter(d => d.finalValue && String(d.finalValue).trim() !== '').length
+}
+
+const getAvgConfidence = (decisions) => {
+  if (!decisions || decisions.length === 0) return 0
+  const total = decisions.reduce((s, d) => s + (d.finalConfidence || 0), 0)
+  return Math.round(total / decisions.length * 100)
+}
+
+const getConfCount = (decisions, min, max) => {
+  if (!decisions) return 0
+  return decisions.filter(d => {
+    const c = d.finalConfidence || 0
+    return c >= min && c < max
+  }).length
+}
+
+const getConfPercent = (decisions, min, max) => {
+  if (!decisions || decisions.length === 0) return 0
+  return Math.round(getConfCount(decisions, min, max) / decisions.length * 100)
+}
+
+const getConfClass = (conf) => {
+  if ((conf || 0) >= 0.85) return 'green'
+  if ((conf || 0) >= 0.70) return 'yellow'
+  return 'red'
+}
+
+const getDecisionModeType = (mode) => {
+  const map = {
+    'rule_only': 'success',
+    'rule_plus_llm': 'primary',
+    'direct_table_copy': 'success',
+    'greedy_fallback': 'warning',
+    'llm_fallback': 'info',
+    'fallback_blank': 'danger'
+  }
+  return map[mode] || 'info'
+}
+
+const formatDecisionMode = (mode) => {
+  const map = {
+    'rule_only': '规则匹配',
+    'rule_plus_llm': '规则+AI',
+    'direct_table_copy': '直接复制',
+    'greedy_fallback': '智能匹配',
+    'llm_fallback': 'AI提取',
+    'fallback_blank': '待补充',
+    'llm_only': 'AI判定'
+  }
+  return map[mode] || mode || '未知'
+}
+
+const getDecisionModeSummary = (decisions) => {
+  if (!decisions || decisions.length === 0) return []
+  const modeMap = {}
+  decisions.forEach(d => {
+    const mode = d.decisionMode || 'unknown'
+    modeMap[mode] = (modeMap[mode] || 0) + 1
+  })
+  const colorMap = {
+    'rule_only': 'green',
+    'direct_table_copy': 'green',
+    'rule_plus_llm': 'blue',
+    'llm_fallback': 'blue',
+    'greedy_fallback': 'yellow',
+    'fallback_blank': 'red'
+  }
+  return Object.entries(modeMap).map(([mode, count]) => ({
+    mode,
+    label: formatDecisionMode(mode),
+    count,
+    percent: Math.round(count / decisions.length * 100),
+    colorClass: colorMap[mode] || 'grey'
+  })).sort((a, b) => b.count - a.count)
+}
 </script>
 
 <style scoped>
 .chat-page { display: flex; height: 100%; gap: 0; background: var(--bg-base); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-md); }
+
+/* ===== Agent智能填表样式 ===== */
+.agent-fill-btn { margin-left: 6px; font-size: 12px; border-radius: 6px; }
+.agent-fill-cta { margin-top: 12px; }
+.agent-fill-cta-btn { font-size: 14px; font-weight: 600; padding: 10px 24px; border-radius: 10px; box-shadow: 0 2px 8px rgba(79,70,229,0.25); display: inline-flex; align-items: center; gap: 6px; transition: transform 0.15s, box-shadow 0.15s; }
+.agent-fill-cta-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(79,70,229,0.35); }
+
+/* 输入工具栏 - 开始填表入口 */
+.input-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.toolbar-fill-btn { display: inline-flex; align-items: center; gap: 6px; background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%); color: #fff; border: none; font-weight: 600; font-size: 13px; padding: 7px 16px; border-radius: 8px; cursor: pointer; box-shadow: 0 2px 8px rgba(79,70,229,0.3); transition: all 0.2s; white-space: nowrap; }
+.toolbar-fill-btn:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(79,70,229,0.4); }
+.toolbar-fill-tip { font-size: 12px; color: var(--text-muted); }
+
+/* 向导步骤进度条 */
+.agent-wizard-steps { display: flex; align-items: flex-start; gap: 0; margin-bottom: 18px; padding: 14px 20px; background: #F8FAFF; border-radius: 10px; border: 1px solid #E0E7FF; }
+.aws-step { display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 72px; }
+.aws-num { width: 26px; height: 26px; border-radius: 50%; background: #E5E7EB; color: #9CA3AF; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; transition: all 0.3s; }
+.aws-label { font-size: 11px; color: #9CA3AF; white-space: nowrap; transition: all 0.3s; }
+.aws-step.active .aws-num { background: #4F46E5; color: #fff; box-shadow: 0 0 0 3px rgba(79,70,229,0.2); }
+.aws-step.active .aws-label { color: #4F46E5; font-weight: 700; }
+.aws-step.done .aws-num { background: #10B981; color: #fff; }
+.aws-step.done .aws-label { color: #10B981; font-weight: 600; }
+.aws-line { flex: 1; height: 2px; background: #E5E7EB; margin: 12px 4px 0; border-radius: 1px; transition: background 0.3s; }
+.aws-line.done { background: #10B981; }
+.agent-result-inline { margin-top: 12px; border: 1px solid var(--border-light); border-radius: var(--radius-md); overflow: hidden; background: var(--bg-card); }
+.agent-result-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: rgba(79,70,229,0.06); border-bottom: 1px solid var(--border-light); }
+.agent-result-title { font-weight: 600; font-size: 13px; color: var(--primary); display: flex; align-items: center; gap: 6px; }
+.agent-result-btns { display: flex; gap: 6px; }
+.agent-result-header-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.agent-result-stats { display: flex; gap: 10px; padding: 12px 14px; }
+.ar-stat-card { flex: 1; text-align: center; padding: 8px 6px; background: var(--bg-base); border-radius: var(--radius-sm); border: 1px solid var(--border-light); }
+.ar-stat-value { font-size: 18px; font-weight: 700; color: var(--primary); }
+.ar-stat-label { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+.agent-conf-chart { padding: 8px 14px 12px; border-top: 1px solid var(--border-light); }
+.ar-conf-title { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; }
+.ar-chart-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; }
+.ar-conf-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+.ar-conf-bar-label { font-size: 11px; color: var(--text-secondary); min-width: 72px; white-space: nowrap; }
+.ar-conf-bar-track { flex: 1; height: 8px; background: var(--bg-base); border-radius: 4px; overflow: hidden; border: 1px solid var(--border-light); }
+.ar-conf-bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
+.ar-conf-bar-fill.green { background: #67c23a; }
+.ar-conf-bar-fill.yellow { background: #e6a23c; }
+.ar-conf-bar-fill.red { background: #f56c6c; }
+.ar-conf-bar-count { font-size: 11px; color: var(--text-secondary); width: 28px; }
+.agent-decisions-table { border-top: 1px solid var(--border-light); }
+.ar-table-header { display: grid; grid-template-columns: 1.8fr 2fr 80px 90px; gap: 6px; padding: 6px 14px; background: rgba(0,0,0,0.03); font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+.ar-table-row { display: grid; grid-template-columns: 1.8fr 2fr 80px 90px; gap: 6px; padding: 5px 14px; border-top: 1px solid var(--border-light); font-size: 12px; align-items: center; }
+.ar-table-row:hover { background: rgba(79,70,229,0.03); }
+.ar-cell-label { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-cell-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+.ar-mini-conf { display: flex; align-items: center; gap: 4px; }
+.ar-cell-conf { display: flex; align-items: center; gap: 4px; }
+.ar-mini-conf-bar { flex: 1; height: 6px; background: var(--bg-base); border-radius: 3px; overflow: hidden; min-width: 30px; border: 1px solid var(--border-light); }
+.ar-mini-conf-track { flex: 1; height: 6px; background: var(--bg-base); border-radius: 3px; overflow: hidden; }
+.ar-mini-conf-fill { height: 100%; border-radius: 3px; }
+.ar-mini-conf-fill.green { background: #67c23a; }
+.ar-mini-conf-fill.yellow { background: #e6a23c; }
+.ar-mini-conf-fill.red { background: #f56c6c; }
+.ar-mini-conf-val { font-size: 10px; color: var(--text-secondary); min-width: 28px; }
+.ar-table-more { padding: 6px 14px; text-align: center; font-size: 11px; color: var(--text-tertiary); background: rgba(0,0,0,0.02); cursor: pointer; }
+.ar-table-more:hover { color: var(--primary); }
+.ar-more-tip { padding: 6px 14px; text-align: center; font-size: 11px; color: var(--text-tertiary); background: rgba(0,0,0,0.02); border-top: 1px solid var(--border-light); }
+/* Agent对话框 */
+.agent-dialog-body { padding: 4px 0; }
+.agent-dialog-tip { background: rgba(79,70,229,0.06); border-radius: 8px; padding: 10px 14px; font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.6; }
+.agent-upload-zone { border: 2px dashed var(--border-light); border-radius: var(--radius-md); padding: 28px 20px; text-align: center; cursor: pointer; transition: border-color 0.2s, background 0.2s; margin-bottom: 14px; }
+.agent-upload-zone:hover { border-color: var(--primary); background: rgba(79,70,229,0.04); }
+.agent-upload-icon { color: var(--primary); opacity: 0.7; }
+.agent-upload-zone p { margin: 8px 0 0; color: var(--text-secondary); font-size: 14px; }
+.agent-upload-hint { font-size: 12px !important; color: var(--text-tertiary) !important; margin-top: 4px !important; }
+.template-selected { color: var(--success) !important; font-weight: 600; }
+.agent-file-list { margin-bottom: 12px; }
+.agent-file-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border-light); border-radius: 6px; margin-bottom: 6px; background: var(--bg-base); }
+.file-icon { color: var(--primary); flex-shrink: 0; }
+.file-name { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-status { display: flex; align-items: center; }
+.agent-extract-tip { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); background: rgba(79,70,229,0.06); border-radius: 8px; padding: 10px 14px; }
+.agent-source-summary { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); padding: 8px 12px; background: rgba(103,194,58,0.08); border-radius: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.source-names { color: var(--text-tertiary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px; }
+.agent-requirement-section { margin-top: 14px; }
+.ar-req-label { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.agent-fill-progress { margin-top: 16px; }
+.agent-fill-tip { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); margin-top: 8px; }
+/* Agent结果预览弹窗 */
+.agent-result-full { }
+.agent-result-stats-full { display: flex; gap: 12px; margin-bottom: 16px; }
+.ar-stat-card-full { flex: 1; text-align: center; padding: 14px 10px; background: var(--bg-base); border-radius: var(--radius-md); border: 1px solid var(--border-light); }
+.ar-stat-card-full.success { border-color: rgba(103,194,58,0.3); background: rgba(103,194,58,0.06); }
+.ar-stat-card-full.success .ar-stat-value { color: #67c23a; }
+.ar-stat-card-full.warning { border-color: rgba(230,162,60,0.3); background: rgba(230,162,60,0.06); }
+.ar-stat-card-full.warning .ar-stat-value { color: #e6a23c; }
+.ar-stat-card-full.info .ar-stat-value { color: var(--primary); }
+.agent-mode-analysis { margin-bottom: 16px; padding: 14px; background: var(--bg-base); border-radius: var(--radius-md); border: 1px solid var(--border-light); }
+.ar-mode-title { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 10px; }
+.ar-mode-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.ar-mode-name { font-size: 12px; color: var(--text-secondary); width: 80px; flex-shrink: 0; }
+.ar-mode-track { flex: 1; height: 10px; background: var(--border-light); border-radius: 5px; overflow: hidden; }
+.ar-mode-fill { height: 100%; border-radius: 5px; transition: width 0.5s ease; }
+.ar-mode-fill.green { background: #67c23a; }
+.ar-mode-fill.blue { background: var(--primary); }
+.ar-mode-fill.yellow { background: #e6a23c; }
+.ar-mode-fill.red { background: #f56c6c; }
+.ar-mode-fill.grey { background: #909399; }
+.ar-mode-count { font-size: 12px; color: var(--text-tertiary); min-width: 28px; }
+.agent-full-table { width: 100%; }
+.empty-value { color: var(--text-tertiary); font-style: italic; }
 .chat-sidebar { width: 280px; background: var(--bg-card); border-right: 1px solid var(--border-light); display: flex; flex-direction: column; position: relative; transition: width 0.3s ease; }
 .chat-sidebar.collapsed { width: 0; border-right: none; }
 .sidebar-toggle { position: absolute; right: -14px; top: 50%; transform: translateY(-50%); width: 28px; height: 28px; background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 10; transition: all 0.2s; }

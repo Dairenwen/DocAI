@@ -1,4 +1,4 @@
-const { normalizeFileName } = require('./document-name')
+﻿const { normalizeFileName } = require('./document-name')
 
 const RUNTIME_DEVTOOLS = 'devtools'
 const RUNTIME_MOBILE = 'mobile'
@@ -110,6 +110,18 @@ function canUseChooseMessageFile() {
   return false
 }
 
+function canUseChooseMessageFileExtension() {
+  if (typeof wx === 'undefined' || !wx || typeof wx.canIUse !== 'function') {
+    return false
+  }
+
+  try {
+    return Boolean(wx.canIUse('chooseMessageFile.object.extension'))
+  } catch (err) {
+    return false
+  }
+}
+
 function buildPickerError(rawError, overrides) {
   const settings = Object.assign({
     code: PICKER_ERROR_UNKNOWN,
@@ -125,7 +137,6 @@ function buildPickerError(rawError, overrides) {
   error.rawError = rawError || null
   return error
 }
-
 function isPickerCancelError(error) {
   const code = normalizeText(error && error.code)
   if (code === PICKER_ERROR_CANCEL) {
@@ -180,7 +191,7 @@ function normalizePickerError(rawError) {
     return buildPickerError(rawError, {
       code: PICKER_ERROR_DEVTOOLS,
       runtime,
-      message: '该能力需在真机或 PC 微信验证。',
+      message: '该能力需在真机或 PC 版微信验证。',
     })
   }
 
@@ -188,7 +199,7 @@ function normalizePickerError(rawError) {
     return buildPickerError(rawError, {
       code: PICKER_ERROR_MOBILE,
       runtime,
-      message: '请先把文件发到微信会话或文件传输助手。',
+      message: '未能打开微信会话文件选择，请重试；若列表为空，请先把文件发到微信会话或文件传输助手。',
     })
   }
 
@@ -196,7 +207,7 @@ function normalizePickerError(rawError) {
     return buildPickerError(rawError, {
       code: PICKER_ERROR_DESKTOP,
       runtime,
-      message: '请先把文件发到微信会话或文件传输助手。',
+      message: '未能打开微信会话文件选择，请重试；若列表为空，请先把文件发到微信会话或文件传输助手。',
     })
   }
 
@@ -206,7 +217,6 @@ function normalizePickerError(rawError) {
     message: rawMessage || '未能打开文件选择器，请稍后重试。',
   })
 }
-
 function getPickerErrorMessage(error, fallbackMessage) {
   if (error && error.name === 'MessageFilePickerError' && error.message) {
     return error.message
@@ -214,7 +224,6 @@ function getPickerErrorMessage(error, fallbackMessage) {
 
   return getRawErrorMessage(error) || fallbackMessage || '未能打开文件选择器，请稍后重试。'
 }
-
 function buildPickerOptionList(options) {
   const normalizedOptions = Object.assign({
     count: 1,
@@ -274,6 +283,27 @@ function buildPickerOptionList(options) {
 }
 
 function shouldRetryPicker(error, normalizedError) {
+  if (isPickerCancelError(normalizedError)) {
+    return false
+  }
+
+  if (normalizedError && normalizedError.code === PICKER_ERROR_NOT_SUPPORTED) {
+    return false
+  }
+
+  // On mobile, repeated retries with broad fallback options often only delay feedback
+  // while not improving success rate. Retry only when options are clearly invalid.
+  if (normalizedError && normalizedError.code === PICKER_ERROR_MOBILE) {
+    const rawMessage = getRawErrorMessage(error).toLowerCase()
+    return includesAny(rawMessage, [
+      'invalid',
+      'parameter',
+      'option',
+      'type',
+      'extension',
+    ])
+  }
+
   const rawMessage = getRawErrorMessage(error).toLowerCase()
   if (includesAny(rawMessage, [
     'invalid',
@@ -291,6 +321,7 @@ function shouldRetryPicker(error, normalizedError) {
     normalizedError
     && (
       normalizedError.code === PICKER_ERROR_DEVTOOLS
+      || normalizedError.code === PICKER_ERROR_DESKTOP
       || normalizedError.runtime === RUNTIME_DESKTOP_CLIENT
     )
   )
@@ -303,7 +334,16 @@ function chooseMessageFileAsync(options) {
     }))
   }
 
-  const optionList = buildPickerOptionList(options)
+  const pickerOptions = Object.assign({}, options || {})
+  if (
+    Array.isArray(pickerOptions.extension)
+    && pickerOptions.extension.length
+    && !canUseChooseMessageFileExtension()
+  ) {
+    delete pickerOptions.extension
+  }
+
+  const optionList = buildPickerOptionList(pickerOptions)
 
   return new Promise((resolve, reject) => {
     const tryChoose = (index) => {
@@ -326,12 +366,22 @@ function chooseMessageFileAsync(options) {
         fail: (error) => {
           const normalizedError = normalizePickerError(error)
           if (
-            !isPickerCancelError(normalizedError)
-            && shouldRetryPicker(error, normalizedError)
+            shouldRetryPicker(error, normalizedError)
             && index < optionList.length - 1
           ) {
             tryChoose(index + 1)
             return
+          }
+
+          if (typeof console !== 'undefined' && console.warn) {
+            console.warn('[docai][chooseMessageFile] failed', {
+              index,
+              total: optionList.length,
+              options: candidateOptions,
+              code: normalizedError.code,
+              runtime: normalizedError.runtime,
+              errMsg: normalizedError.errMsg,
+            })
           }
 
           reject(normalizedError)
@@ -352,10 +402,10 @@ function getUploadPickerHint() {
     return '微信开发者工具通常无法模拟该能力，请在真机或 PC 版微信中测试。'
   }
 
-  return '先把文件发到微信会话或文件传输助手，再在小程序里选择上传。'
+  return '请先把文件发到微信会话或文件传输助手，再在小程序里选择上传。'
 }
-
 module.exports = {
+  canUseChooseMessageFileExtension,
   canUseChooseMessageFile,
   chooseMessageFileAsync,
   isDevtoolsPickerError,
